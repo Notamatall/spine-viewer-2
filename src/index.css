@@ -1,0 +1,57 @@
+:root {
+  font-family: 'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #1f1a16;
+  background-color: #f4efe8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --panel: rgba(255, 250, 244, 0.9);
+  --panel-border: rgba(31, 26, 23, 0.15);
+  --panel-shadow: 0 30px 80px rgba(52, 39, 25, 0.12);
+  --accent: #ff7a4a;
+  --accent-2: #2b7a78;
+  --ink: #1f1a16;
+  --muted: #6c6056;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: radial-gradient(circle at top left, rgba(255, 230, 200, 0.7), transparent 55%),
+    radial-gradient(circle at 20% 40%, rgba(255, 255, 255, 0.9), transparent 60%),
+    linear-gradient(135deg, #f7f1e8 0%, #efe5d9 40%, #f6efe8 100%);
+  color: var(--ink);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(31, 26, 23, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.25;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+}
+
+input,
+select,
+button {
+  font-family: inherit;
+}
