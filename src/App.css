@@ -136,6 +136,12 @@
   gap: 1rem;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 .ghost {
   border: 1px solid var(--panel-border);
   background: transparent;
@@ -218,21 +224,6 @@
   color: var(--muted);
 }
 
-.grid-overlay {
-  position: absolute;
-  width: 600px;
-  height: 600px;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  border: 1px solid rgba(31, 26, 23, 0.3);
-  pointer-events: none;
-  background-image:
-    linear-gradient(to right, rgba(31, 26, 23, 0.22) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(31, 26, 23, 0.22) 1px, transparent 1px);
-  background-size: 120px 120px;
-  box-shadow: 0 0 0 1px rgba(31, 26, 23, 0.12) inset;
-}
 
 .eyebrow {
   margin: 0;

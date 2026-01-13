@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Application, Assets, Graphics, TextureSource } from "pixi.js";
+import {
+  Application,
+  Assets,
+  Graphics,
+  Rectangle,
+  TextureSource,
+} from "pixi.js";
 import { Spine } from "@esotericsoftware/spine-pixi-v8";
 import "./App.css";
 
@@ -16,6 +22,8 @@ type GridSlot = {
   hasSpine: boolean;
   animations: string[];
   selectedAnimation: string;
+  skins: string[];
+  selectedSkin: string;
   isLooping: boolean;
   isPlaying: boolean;
   scale: number;
@@ -58,8 +66,23 @@ function App() {
   const gridSpinesRef = useRef<Map<string, Spine>>(new Map());
   const gridAssetsRef = useRef<Map<string, LoadedAssets>>(new Map());
   const gridOutlinesRef = useRef<Map<string, Graphics>>(new Map());
+  const gridPivotRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const gridGuideRef = useRef<Graphics | null>(null);
+  const gridHoverRef = useRef<Graphics | null>(null);
   const assetsReadyRef = useRef(false);
   const viewModeRef = useRef<"single" | "grid">("single");
+
+  const getGridMetrics = () => {
+    const app = appRef.current;
+    if (!app) {
+      return null;
+    }
+    const cellSize = 120;
+    const gridSize = cellSize * gridCols;
+    const gridLeft = app.renderer.width / 2 - gridSize / 2;
+    const gridTop = app.renderer.height / 2 - gridSize / 2;
+    return { cellSize, gridSize, gridLeft, gridTop };
+  };
 
   const [viewMode, setViewMode] = useState<"single" | "grid">("single");
   const [jsonFile, setJsonFile] = useState<File | null>(null);
@@ -75,8 +98,8 @@ function App() {
   const [selectedSkin, setSelectedSkin] = useState("");
   const [isLooping, setIsLooping] = useState(true);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [hasSpine, setHasSpine] = useState(false);
   const [gridScale, setGridScale] = useState(1);
+  const [multiScale, setMultiScale] = useState(true);
   const [gridSlots, setGridSlots] = useState<GridSlot[]>(() =>
     Array.from({ length: gridRows * gridCols }, (_, index) => {
       const row = Math.floor(index / gridCols);
@@ -104,6 +127,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const gridSlotsRef = useRef<GridSlot[]>(gridSlots);
+  const lastSingleSignatureRef = useRef("");
+  const lastGridSignatureRef = useRef("");
 
   useEffect(() => {
     gridSlotsRef.current = gridSlots;
@@ -164,25 +189,80 @@ function App() {
     if (!app || !container) {
       return;
     }
-    const cellSize = 120;
-    const gridSize = cellSize * gridCols;
-    const gridLeft = app.renderer.width / 2 - gridSize / 2;
-    const gridTop = app.renderer.height / 2 - gridSize / 2;
+    const metrics = getGridMetrics();
+    if (!metrics) {
+      return;
+    }
+    const { cellSize, gridLeft, gridTop } = metrics;
 
     gridSpinesRef.current.forEach((spine, slotId) => {
       const slot = gridSlotsRef.current.find((item) => item.id === slotId);
       if (!slot) {
         return;
       }
-      const bounds = spine.getLocalBounds();
-      spine.pivot.set(
-        bounds.x + bounds.width / 2,
-        bounds.y + bounds.height / 2
-      );
+      const pivot = gridPivotRef.current.get(slotId);
+      if (pivot) {
+        spine.pivot.set(pivot.x, pivot.y);
+      }
       const x = gridLeft + slot.col * cellSize + cellSize / 2;
       const y = gridTop + slot.row * cellSize + cellSize / 2;
       spine.position.set(x, y);
     });
+  };
+
+  const drawGridGuide = () => {
+    const app = appRef.current;
+    const guide = gridGuideRef.current;
+    if (!app || !guide) {
+      return;
+    }
+    const metrics = getGridMetrics();
+    if (!metrics) {
+      return;
+    }
+    const { cellSize, gridSize, gridLeft, gridTop } = metrics;
+    guide.clear();
+    guide
+      .rect(gridLeft, gridTop, gridSize, gridSize)
+      .stroke({ width: 1, color: 0x2f241e, alpha: 0.35 });
+    for (let i = 1; i < gridCols; i += 1) {
+      const x = gridLeft + i * cellSize;
+      guide
+        .moveTo(x, gridTop)
+        .lineTo(x, gridTop + gridSize)
+        .stroke({ width: 1, color: 0x2f241e, alpha: 0.22 });
+    }
+    for (let i = 1; i < gridRows; i += 1) {
+      const y = gridTop + i * cellSize;
+      guide
+        .moveTo(gridLeft, y)
+        .lineTo(gridLeft + gridSize, y)
+        .stroke({ width: 1, color: 0x2f241e, alpha: 0.22 });
+    }
+    guide.hitArea = new Rectangle(gridLeft, gridTop, gridSize, gridSize);
+  };
+
+  const drawGridHover = (row: number | null, col: number | null) => {
+    const app = appRef.current;
+    const hover = gridHoverRef.current;
+    if (!app || !hover) {
+      return;
+    }
+    hover.clear();
+    if (row === null || col === null) {
+      return;
+    }
+    const metrics = getGridMetrics();
+    if (!metrics) {
+      return;
+    }
+    const { cellSize, gridLeft, gridTop } = metrics;
+    const x = gridLeft + col * cellSize;
+    const y = gridTop + row * cellSize;
+    hover
+      .rect(x, y, cellSize, cellSize)
+      .fill({ color: 0xff7a4a, alpha: 0.12 })
+      .stroke({ width: 1, color: 0xff7a4a, alpha: 0.35 });
   };
 
   const syncStageForMode = () => {
@@ -201,6 +281,42 @@ function App() {
         }
       }
     } else {
+      if (!gridGuideRef.current) {
+        gridGuideRef.current = new Graphics();
+        gridGuideRef.current.zIndex = 1;
+        gridGuideRef.current.eventMode = "static";
+        gridGuideRef.current.cursor = "pointer";
+        gridGuideRef.current.on("pointerdown", (event) => {
+          if (viewModeRef.current !== "grid") {
+            return;
+          }
+          const metrics = getGridMetrics();
+          if (!metrics) {
+            return;
+          }
+          const { gridLeft, gridTop, gridSize, cellSize } = metrics;
+          const { x, y } = event.global;
+          if (
+            x < gridLeft ||
+            y < gridTop ||
+            x > gridLeft + gridSize ||
+            y > gridTop + gridSize
+          ) {
+            return;
+          }
+          const col = Math.floor((x - gridLeft) / cellSize);
+          const row = Math.floor((y - gridTop) / cellSize);
+          const slotId = `slot-${row}-${col}`;
+          setActiveSlotId(slotId);
+        });
+      }
+      if (!gridHoverRef.current) {
+        gridHoverRef.current = new Graphics();
+        gridHoverRef.current.zIndex = 2;
+      }
+      drawGridGuide();
+      app.stage.addChild(gridGuideRef.current);
+      app.stage.addChild(gridHoverRef.current);
       gridSpinesRef.current.forEach((spine) => {
         app.stage.addChild(spine);
       });
@@ -234,6 +350,72 @@ function App() {
       container.innerHTML = "";
       container.appendChild(app.canvas);
       app.stage.sortableChildren = true;
+      app.stage.eventMode = "static";
+      app.stage.hitArea = app.screen;
+
+      const handleCanvasPointer = (event: PointerEvent) => {
+        if (viewModeRef.current !== "grid") {
+          return;
+        }
+        const metrics = getGridMetrics();
+        if (!metrics) {
+          return;
+        }
+        const point = { x: 0, y: 0 };
+        app.renderer.events.mapPositionToPoint(
+          point,
+          event.clientX,
+          event.clientY
+        );
+        const { gridLeft, gridTop, gridSize, cellSize } = metrics;
+        if (
+          point.x < gridLeft ||
+          point.y < gridTop ||
+          point.x > gridLeft + gridSize ||
+          point.y > gridTop + gridSize
+        ) {
+          return;
+        }
+        const col = Math.floor((point.x - gridLeft) / cellSize);
+        const row = Math.floor((point.y - gridTop) / cellSize);
+        const slotId = `slot-${row}-${col}`;
+        setActiveSlotId(slotId);
+      };
+      const handleCanvasMove = (event: PointerEvent) => {
+        if (viewModeRef.current !== "grid") {
+          drawGridHover(null, null);
+          return;
+        }
+        const metrics = getGridMetrics();
+        if (!metrics) {
+          return;
+        }
+        const point = { x: 0, y: 0 };
+        app.renderer.events.mapPositionToPoint(
+          point,
+          event.clientX,
+          event.clientY
+        );
+        const { gridLeft, gridTop, gridSize, cellSize } = metrics;
+        if (
+          point.x < gridLeft ||
+          point.y < gridTop ||
+          point.x > gridLeft + gridSize ||
+          point.y > gridTop + gridSize
+        ) {
+          drawGridHover(null, null);
+          return;
+        }
+        const col = Math.floor((point.x - gridLeft) / cellSize);
+        const row = Math.floor((point.y - gridTop) / cellSize);
+        drawGridHover(row, col);
+      };
+      const handleCanvasLeave = () => {
+        drawGridHover(null, null);
+      };
+      app.canvas.addEventListener("pointerdown", handleCanvasPointer);
+      app.canvas.addEventListener("pointermove", handleCanvasMove);
+      app.canvas.addEventListener("pointerleave", handleCanvasLeave);
 
       const resize = () => {
         if (!container) {
@@ -245,6 +427,7 @@ function App() {
         if (viewModeRef.current === "single" && singleSpineRef.current) {
           centerSingleSpine(singleSpineRef.current);
         } else if (viewModeRef.current === "grid") {
+          drawGridGuide();
           layoutGridSpines();
         }
       };
@@ -276,6 +459,7 @@ function App() {
 
     return () => {
       cancelled = true;
+
       observer?.disconnect();
       if (singleSpineRef.current) {
         singleSpineRef.current.destroy({
@@ -295,6 +479,15 @@ function App() {
       gridSpinesRef.current.clear();
       gridOutlinesRef.current.forEach((outline) => outline.destroy());
       gridOutlinesRef.current.clear();
+      gridPivotRef.current.clear();
+      if (gridGuideRef.current) {
+        gridGuideRef.current.destroy();
+        gridGuideRef.current = null;
+      }
+      if (gridHoverRef.current) {
+        gridHoverRef.current.destroy();
+        gridHoverRef.current = null;
+      }
       if (app) {
         // app.destroy(true)
       }
@@ -460,7 +653,6 @@ function App() {
     setIsLoading(true);
     setError(null);
     setStatus("Loading assets...");
-    setHasSpine(false);
     setAnimations([]);
     setSelectedAnimation("");
     setSkins([]);
@@ -521,7 +713,6 @@ function App() {
       result.spine.state.timeScale = isPlaying ? 1 : 0;
 
       lastAssetsRef.current = result.assets;
-      setHasSpine(true);
       setStatus("Spine loaded. Ready to animate.");
       syncStageForMode();
     } catch (err) {
@@ -529,7 +720,6 @@ function App() {
         err instanceof Error ? err.message : "Failed to load spine data.";
       setError(message);
       setStatus("Load failed.");
-      setHasSpine(false);
     } finally {
       setIsLoading(false);
     }
@@ -579,6 +769,7 @@ function App() {
         existingOutline.destroy();
         gridOutlinesRef.current.delete(slotId);
       }
+      gridPivotRef.current.delete(slotId);
 
       const result = await createSpineFromFiles(files, slotId);
 
@@ -597,6 +788,15 @@ function App() {
         result.spine.skeleton.setSkinByName(initialSkin);
         result.spine.skeleton.setSlotsToSetupPose();
       }
+      const initialBounds = result.spine.getLocalBounds();
+      gridPivotRef.current.set(slotId, {
+        x: initialBounds.x + initialBounds.width / 2,
+        y: initialBounds.y + initialBounds.height / 2,
+      });
+      result.spine.pivot.set(
+        initialBounds.x + initialBounds.width / 2,
+        initialBounds.y + initialBounds.height / 2
+      );
       if (initialAnimation) {
         result.spine.state.setAnimation(
           0,
@@ -643,6 +843,7 @@ function App() {
     }
 
     setIsLoading(true);
+    const slotScale = multiScale ? gridScale : activeSlot.scale;
     await loadGridSlot(
       activeSlot.id,
       {
@@ -650,7 +851,7 @@ function App() {
         atlas: gridAtlasFile,
         images: gridImageFiles,
       },
-      gridScale
+      slotScale
     );
     setIsLoading(false);
   };
@@ -665,7 +866,7 @@ function App() {
       }
       return;
     }
-    const fillScale = gridScale;
+    const fillScale = multiScale ? gridScale : activeSlot?.scale ?? 1;
     const emptySlots = gridSlots.filter((slot) => !slot.hasSpine);
     if (emptySlots.length === 0) {
       return;
@@ -689,14 +890,105 @@ function App() {
     setIsLoading(false);
   };
 
+  const handleGridClear = async () => {
+    const slotIds = Array.from(gridSpinesRef.current.keys());
+    if (slotIds.length === 0) {
+      return;
+    }
+    setIsLoading(true);
+    for (const slotId of slotIds) {
+      const assets = gridAssetsRef.current.get(slotId);
+      if (assets) {
+        await Assets.unload(assets.keys);
+        assets.urls.forEach((url) => URL.revokeObjectURL(url));
+        gridAssetsRef.current.delete(slotId);
+      }
+      const spine = gridSpinesRef.current.get(slotId);
+      if (spine) {
+        spine.destroy({ children: true, texture: true, textureSource: true });
+        gridSpinesRef.current.delete(slotId);
+      }
+      const outline = gridOutlinesRef.current.get(slotId);
+      if (outline) {
+        outline.destroy();
+        gridOutlinesRef.current.delete(slotId);
+      }
+      gridPivotRef.current.delete(slotId);
+      updateGridSlot(slotId, (slot) => ({
+        ...slot,
+        hasSpine: false,
+        animations: [],
+        selectedAnimation: "",
+        skins: [],
+        selectedSkin: "",
+        status: "Empty slot.",
+        error: null,
+      }));
+    }
+    syncStageForMode();
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    if (viewMode !== "single" || isLoading) {
+      return;
+    }
+    if (!jsonFile || !atlasFile || imageFiles.length === 0) {
+      return;
+    }
+    const signature = [
+      jsonFile.name,
+      jsonFile.lastModified,
+      atlasFile.name,
+      atlasFile.lastModified,
+      ...imageFiles.map(
+        (file) => `${file.name}-${file.lastModified}-${file.size}`
+      ),
+    ].join("|");
+    if (signature === lastSingleSignatureRef.current) {
+      return;
+    }
+    lastSingleSignatureRef.current = signature;
+    handleSingleLoad();
+  }, [viewMode, isLoading, jsonFile, atlasFile, imageFiles]);
+
+  useEffect(() => {
+    if (viewMode !== "grid" || isLoading) {
+      return;
+    }
+    if (!gridJsonFile || !gridAtlasFile || gridImageFiles.length === 0) {
+      return;
+    }
+    const signature = [
+      activeSlotId,
+      gridJsonFile.name,
+      gridJsonFile.lastModified,
+      gridAtlasFile.name,
+      gridAtlasFile.lastModified,
+      ...gridImageFiles.map(
+        (file) => `${file.name}-${file.lastModified}-${file.size}`
+      ),
+    ].join("|");
+    if (signature === lastGridSignatureRef.current) {
+      return;
+    }
+    lastGridSignatureRef.current = signature;
+    handleGridLoad();
+  }, [
+    viewMode,
+    isLoading,
+    activeSlotId,
+    gridJsonFile,
+    gridAtlasFile,
+    gridImageFiles,
+  ]);
+
   const activeSlot = getActiveSlot();
   const activeStatus =
     viewMode === "single"
       ? status
       : activeSlot?.status ?? "Select a slot to load.";
   const activeError = viewMode === "single" ? error : activeSlot?.error ?? null;
-  const hasViewportSpine =
-    viewMode === "single" ? hasSpine : gridSlots.some((slot) => slot.hasSpine);
 
   return (
     <div className="app">
@@ -756,55 +1048,9 @@ function App() {
                     : "Pick JSON, atlas, and PNG pages together"}
                 </em>
               </label>
-              <label className="field">
-                <span>Skeleton JSON</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={(event) =>
-                    setJsonFile(event.target.files?.[0] ?? null)
-                  }
-                />
-                <em>{jsonFile ? jsonFile.name : "No file selected"}</em>
-              </label>
-              <label className="field">
-                <span>Atlas</span>
-                <input
-                  type="file"
-                  accept=".atlas"
-                  onChange={(event) =>
-                    setAtlasFile(event.target.files?.[0] ?? null)
-                  }
-                />
-                <em>{atlasFile ? atlasFile.name : "No file selected"}</em>
-              </label>
-              <label className="field">
-                <span>PNG Pages</span>
-                <input
-                  type="file"
-                  accept=".png"
-                  multiple
-                  onChange={(event) =>
-                    setImageFiles(Array.from(event.target.files ?? []))
-                  }
-                />
-                <em>
-                  {imageFiles.length > 0
-                    ? imageFiles.map((file) => file.name).join(", ")
-                    : "Select one or more pages"}
-                </em>
-              </label>
               <p className="hint">
                 PNG filenames must match the atlas page names.
               </p>
-              <button
-                className="primary"
-                type="button"
-                onClick={handleSingleLoad}
-                disabled={isLoading}
-              >
-                {isLoading ? "Loading…" : "Load Spine"}
-              </button>
             </>
           ) : (
             <>
@@ -851,65 +1097,27 @@ function App() {
                     : "Select a slot to edit."}
                 </em>
               </label>
-              <label className="field">
-                <span>Skeleton JSON</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={(event) =>
-                    setGridJsonFile(event.target.files?.[0] ?? null)
-                  }
-                />
-                <em>{gridJsonFile ? gridJsonFile.name : "No file selected"}</em>
-              </label>
-              <label className="field">
-                <span>Atlas</span>
-                <input
-                  type="file"
-                  accept=".atlas"
-                  onChange={(event) =>
-                    setGridAtlasFile(event.target.files?.[0] ?? null)
-                  }
-                />
-                <em>
-                  {gridAtlasFile ? gridAtlasFile.name : "No file selected"}
-                </em>
-              </label>
-              <label className="field">
-                <span>PNG Pages</span>
-                <input
-                  type="file"
-                  accept=".png"
-                  multiple
-                  onChange={(event) =>
-                    setGridImageFiles(Array.from(event.target.files ?? []))
-                  }
-                />
-                <em>
-                  {gridImageFiles.length > 0
-                    ? gridImageFiles.map((file) => file.name).join(", ")
-                    : "Select one or more pages"}
-                </em>
-              </label>
               <p className="hint">
                 PNG filenames must match the atlas page names.
               </p>
-              <button
-                className="primary"
-                type="button"
-                onClick={handleGridLoad}
-                disabled={isLoading}
-              >
-                {isLoading ? "Loading…" : "Load Slot Spine"}
-              </button>
-              <button
-                className="ghost"
-                type="button"
-                onClick={handleGridFillEmpty}
-                disabled={isLoading}
-              >
-                Fill Empty Slots
-              </button>
+              <div className="button-row">
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={handleGridFillEmpty}
+                  disabled={isLoading}
+                >
+                  Fill Empty Slots
+                </button>
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={handleGridClear}
+                  disabled={isLoading}
+                >
+                  Clear Grid
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -922,19 +1130,36 @@ function App() {
               min={0.1}
               max={3}
               step={0.05}
-              value={viewMode === "single" ? scale : gridScale}
+              value={
+                viewMode === "single"
+                  ? scale
+                  : multiScale
+                  ? gridScale
+                  : activeSlot?.scale ?? 1
+              }
               onChange={(event) => {
                 const nextScale = Number(event.target.value);
                 if (viewMode === "single") {
                   setScale(nextScale);
                 } else {
-                  setGridScale(nextScale);
-                  setGridSlots((prev) =>
-                    prev.map((slot) => ({ ...slot, scale: nextScale }))
-                  );
-                  gridSpinesRef.current.forEach((spine) => {
-                    spine.scale.set(nextScale);
-                  });
+                  if (multiScale) {
+                    setGridScale(nextScale);
+                    setGridSlots((prev) =>
+                      prev.map((slot) => ({ ...slot, scale: nextScale }))
+                    );
+                    gridSpinesRef.current.forEach((spine) => {
+                      spine.scale.set(nextScale);
+                    });
+                  } else if (activeSlot) {
+                    updateGridSlot(activeSlot.id, (slot) => ({
+                      ...slot,
+                      scale: nextScale,
+                    }));
+                    const spine = gridSpinesRef.current.get(activeSlot.id);
+                    if (spine) {
+                      spine.scale.set(nextScale);
+                    }
+                  }
                   layoutGridSpines();
                 }
               }}
@@ -944,24 +1169,51 @@ function App() {
               min={0.1}
               max={5}
               step={0.05}
-              value={viewMode === "single" ? scale : gridScale}
+              value={
+                viewMode === "single"
+                  ? scale
+                  : multiScale
+                  ? gridScale
+                  : activeSlot?.scale ?? 1
+              }
               onChange={(event) => {
                 const nextScale = Number(event.target.value || 1);
                 if (viewMode === "single") {
                   setScale(nextScale);
                 } else {
-                  setGridScale(nextScale);
-                  setGridSlots((prev) =>
-                    prev.map((slot) => ({ ...slot, scale: nextScale }))
-                  );
-                  gridSpinesRef.current.forEach((spine) => {
-                    spine.scale.set(nextScale);
-                  });
+                  if (multiScale) {
+                    setGridScale(nextScale);
+                    setGridSlots((prev) =>
+                      prev.map((slot) => ({ ...slot, scale: nextScale }))
+                    );
+                    gridSpinesRef.current.forEach((spine) => {
+                      spine.scale.set(nextScale);
+                    });
+                  } else if (activeSlot) {
+                    updateGridSlot(activeSlot.id, (slot) => ({
+                      ...slot,
+                      scale: nextScale,
+                    }));
+                    const spine = gridSpinesRef.current.get(activeSlot.id);
+                    if (spine) {
+                      spine.scale.set(nextScale);
+                    }
+                  }
                   layoutGridSpines();
                 }
               }}
             />
           </div>
+          {viewMode === "grid" ? (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={multiScale}
+                onChange={(event) => setMultiScale(event.target.checked)}
+              />
+              Scale all symbols
+            </label>
+          ) : null}
         </div>
 
         <div className="panel-section">
@@ -1019,7 +1271,11 @@ function App() {
           <label className="field">
             <span>Skin</span>
             <select
-              value={viewMode === "single" ? selectedSkin : ""}
+              value={
+                viewMode === "single"
+                  ? selectedSkin
+                  : activeSlot?.selectedSkin ?? ""
+              }
               onChange={(event) => {
                 const nextSkin = event.target.value;
                 if (viewMode === "single") {
@@ -1034,19 +1290,36 @@ function App() {
                     spine.skeleton.setSkinByName(nextSkin);
                     spine.skeleton.setSlotsToSetupPose();
                     spine.state.apply(spine.skeleton);
+                    const skinBounds = spine.getLocalBounds();
+                    gridPivotRef.current.set(activeSlot.id, {
+                      x: skinBounds.x + skinBounds.width / 2,
+                      y: skinBounds.y + skinBounds.height / 2,
+                    });
+                    spine.pivot.set(
+                      skinBounds.x + skinBounds.width / 2,
+                      skinBounds.y + skinBounds.height / 2
+                    );
+                    layoutGridSpines();
                   }
                 }
               }}
-              disabled={viewMode === "single" ? skins.length === 0 : 0 === 0}
+              disabled={
+                viewMode === "single"
+                  ? skins.length === 0
+                  : (activeSlot?.skins.length ?? 0) === 0
+              }
             >
-              {(viewMode === "single" ? skins : []).length === 0 ? (
+              {(viewMode === "single" ? skins : activeSlot?.skins ?? [])
+                .length === 0 ? (
                 <option value="">No skins</option>
               ) : (
-                (viewMode === "single" ? skins : []).map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))
+                (viewMode === "single" ? skins : activeSlot?.skins ?? []).map(
+                  (name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  )
+                )
               )}
             </select>
           </label>
@@ -1130,8 +1403,7 @@ function App() {
         </div>
         <div className="canvas-shell">
           <div className="canvas-frame" ref={containerRef} />
-          {viewMode === "grid" ? <div className="grid-overlay" /> : null}
-          {hasViewportSpine ? null : (
+          {/* {hasViewportSpine ? null : (
             <div className="empty-state">
               <p>
                 {viewMode === "single"
@@ -1139,7 +1411,7 @@ function App() {
                   : "Load slot spines to fill the grid."}
               </p>
             </div>
-          )}
+          )} */}
         </div>
       </main>
     </div>
