@@ -63,21 +63,22 @@ function App() {
   const singleSpineRef = useRef<Spine | null>(null);
   const singleOutlineRef = useRef<Graphics | null>(null);
   const lastAssetsRef = useRef<LoadedAssets | null>(null);
+  const gridFileInputRef = useRef<HTMLInputElement | null>(null);
   const gridSpinesRef = useRef<Map<string, Spine>>(new Map());
   const gridAssetsRef = useRef<Map<string, LoadedAssets>>(new Map());
   const gridOutlinesRef = useRef<Map<string, Graphics>>(new Map());
-  const gridPivotRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const gridGuideRef = useRef<Graphics | null>(null);
   const gridHoverRef = useRef<Graphics | null>(null);
   const assetsReadyRef = useRef(false);
   const viewModeRef = useRef<"single" | "grid">("single");
+  const showGridOutlinesRef = useRef(true);
 
   const getGridMetrics = () => {
     const app = appRef.current;
     if (!app) {
       return null;
     }
-    const cellSize = 120;
+    const cellSize = gridCellSize;
     const gridSize = cellSize * gridCols;
     const gridLeft = app.renderer.width / 2 - gridSize / 2;
     const gridTop = app.renderer.height / 2 - gridSize / 2;
@@ -100,6 +101,8 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [gridScale, setGridScale] = useState(1);
   const [multiScale, setMultiScale] = useState(true);
+  const [gridCellSize, setGridCellSize] = useState(120);
+  const [showGridOutlines, setShowGridOutlines] = useState(true);
   const [gridSlots, setGridSlots] = useState<GridSlot[]>(() =>
     Array.from({ length: gridRows * gridCols }, (_, index) => {
       const row = Math.floor(index / gridCols);
@@ -138,6 +141,29 @@ function App() {
     viewModeRef.current = viewMode;
   }, [viewMode]);
 
+  useEffect(() => {
+    showGridOutlinesRef.current = showGridOutlines;
+    if (!showGridOutlines) {
+      gridOutlinesRef.current.forEach((outline) => outline.clear());
+    } else {
+      gridSpinesRef.current.forEach((_, slotId) => {
+        ensureGridOutline(slotId);
+      });
+    }
+    if (viewModeRef.current === "grid") {
+      syncStageForMode();
+    }
+  }, [showGridOutlines]);
+
+  useEffect(() => {
+    if (viewModeRef.current !== "grid") {
+      return;
+    }
+    drawGridGuide();
+    layoutGridSpines();
+    drawGridHover(null, null);
+  }, [gridCellSize]);
+
   const centerSingleSpine = (spine: Spine) => {
     const app = appRef.current;
     const container = containerRef.current;
@@ -170,7 +196,7 @@ function App() {
 
   const ensureGridOutline = (slotId: string) => {
     const app = appRef.current;
-    if (!app) {
+    if (!app || !showGridOutlinesRef.current) {
       return;
     }
     const existing = gridOutlinesRef.current.get(slotId);
@@ -181,6 +207,14 @@ function App() {
     outline.zIndex = 10;
     gridOutlinesRef.current.set(slotId, outline);
     app.stage.addChild(outline);
+  };
+
+  const disableGridOutlines = () => {
+    if (!showGridOutlinesRef.current) {
+      return;
+    }
+    showGridOutlinesRef.current = false;
+    gridOutlinesRef.current.forEach((outline) => outline.clear());
   };
 
   const layoutGridSpines = () => {
@@ -199,10 +233,6 @@ function App() {
       const slot = gridSlotsRef.current.find((item) => item.id === slotId);
       if (!slot) {
         return;
-      }
-      const pivot = gridPivotRef.current.get(slotId);
-      if (pivot) {
-        spine.pivot.set(pivot.x, pivot.y);
       }
       const x = gridLeft + slot.col * cellSize + cellSize / 2;
       const y = gridTop + slot.row * cellSize + cellSize / 2;
@@ -290,6 +320,7 @@ function App() {
           if (viewModeRef.current !== "grid") {
             return;
           }
+          disableGridOutlines();
           const metrics = getGridMetrics();
           if (!metrics) {
             return;
@@ -320,9 +351,11 @@ function App() {
       gridSpinesRef.current.forEach((spine) => {
         app.stage.addChild(spine);
       });
-      gridOutlinesRef.current.forEach((outline) => {
-        app.stage.addChild(outline);
-      });
+      if (showGridOutlinesRef.current) {
+        gridOutlinesRef.current.forEach((outline) => {
+          app.stage.addChild(outline);
+        });
+      }
       layoutGridSpines();
     }
   };
@@ -357,6 +390,7 @@ function App() {
         if (viewModeRef.current !== "grid") {
           return;
         }
+        disableGridOutlines();
         const metrics = getGridMetrics();
         if (!metrics) {
           return;
@@ -441,12 +475,14 @@ function App() {
             );
           }
         } else {
-          gridSpinesRef.current.forEach((spine, slotId) => {
-            const outline = gridOutlinesRef.current.get(slotId);
-            if (outline) {
-              updateBoundsOutline(spine, outline);
-            }
-          });
+          if (showGridOutlinesRef.current) {
+            gridSpinesRef.current.forEach((spine, slotId) => {
+              const outline = gridOutlinesRef.current.get(slotId);
+              if (outline) {
+                updateBoundsOutline(spine, outline);
+              }
+            });
+          }
         }
       });
 
@@ -479,7 +515,6 @@ function App() {
       gridSpinesRef.current.clear();
       gridOutlinesRef.current.forEach((outline) => outline.destroy());
       gridOutlinesRef.current.clear();
-      gridPivotRef.current.clear();
       if (gridGuideRef.current) {
         gridGuideRef.current.destroy();
         gridGuideRef.current = null;
@@ -769,8 +804,6 @@ function App() {
         existingOutline.destroy();
         gridOutlinesRef.current.delete(slotId);
       }
-      gridPivotRef.current.delete(slotId);
-
       const result = await createSpineFromFiles(files, slotId);
 
       result.spine.scale.set(slotScale);
@@ -788,15 +821,6 @@ function App() {
         result.spine.skeleton.setSkinByName(initialSkin);
         result.spine.skeleton.setSlotsToSetupPose();
       }
-      const initialBounds = result.spine.getLocalBounds();
-      gridPivotRef.current.set(slotId, {
-        x: initialBounds.x + initialBounds.width / 2,
-        y: initialBounds.y + initialBounds.height / 2,
-      });
-      result.spine.pivot.set(
-        initialBounds.x + initialBounds.width / 2,
-        initialBounds.y + initialBounds.height / 2
-      );
       if (initialAnimation) {
         result.spine.state.setAnimation(
           0,
@@ -913,7 +937,6 @@ function App() {
         outline.destroy();
         gridOutlinesRef.current.delete(slotId);
       }
-      gridPivotRef.current.delete(slotId);
       updateGridSlot(slotId, (slot) => ({
         ...slot,
         hasSpine: false,
@@ -924,6 +947,13 @@ function App() {
         status: "Empty slot.",
         error: null,
       }));
+    }
+    lastGridSignatureRef.current = "";
+    setGridJsonFile(null);
+    setGridAtlasFile(null);
+    setGridImageFiles([]);
+    if (gridFileInputRef.current) {
+      gridFileInputRef.current.value = "";
     }
     syncStageForMode();
     setIsLoading(false);
@@ -1060,6 +1090,7 @@ function App() {
                   type="file"
                   accept=".json,.atlas,.png"
                   multiple
+                  ref={gridFileInputRef}
                   onChange={(event) => {
                     const parsed = parseSelectedFiles(event.target.files);
                     setGridJsonFile(parsed.json);
@@ -1116,6 +1147,13 @@ function App() {
                   disabled={isLoading}
                 >
                   Clear Grid
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setShowGridOutlines((prev) => !prev)}
+                >
+                  {showGridOutlines ? "Hide outlines" : "Show outlines"}
                 </button>
               </div>
             </>
@@ -1216,6 +1254,39 @@ function App() {
           ) : null}
         </div>
 
+        {viewMode === "grid" ? (
+          <div className="panel-section">
+            <h2>Grid</h2>
+            <label className="field">
+              <span>Cell size</span>
+              <div className="scale-controls">
+                <input
+                  type="range"
+                  min={60}
+                  max={240}
+                  step={5}
+                  value={gridCellSize}
+                  onChange={(event) => {
+                    const nextSize = Number(event.target.value);
+                    setGridCellSize(nextSize);
+                  }}
+                />
+                <input
+                  type="number"
+                  min={40}
+                  max={400}
+                  step={1}
+                  value={gridCellSize}
+                  onChange={(event) => {
+                    const nextSize = Number(event.target.value || 120);
+                    setGridCellSize(nextSize);
+                  }}
+                />
+              </div>
+            </label>
+          </div>
+        ) : null}
+
         <div className="panel-section">
           <h2>Animation</h2>
           <label className="field">
@@ -1290,15 +1361,6 @@ function App() {
                     spine.skeleton.setSkinByName(nextSkin);
                     spine.skeleton.setSlotsToSetupPose();
                     spine.state.apply(spine.skeleton);
-                    const skinBounds = spine.getLocalBounds();
-                    gridPivotRef.current.set(activeSlot.id, {
-                      x: skinBounds.x + skinBounds.width / 2,
-                      y: skinBounds.y + skinBounds.height / 2,
-                    });
-                    spine.pivot.set(
-                      skinBounds.x + skinBounds.width / 2,
-                      skinBounds.y + skinBounds.height / 2
-                    );
                     layoutGridSpines();
                   }
                 }

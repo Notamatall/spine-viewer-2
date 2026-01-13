@@ -11,17 +11,17 @@
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 24px;
-  padding: 1.75rem;
+  padding: 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.6rem;
   box-shadow: var(--panel-shadow);
   animation: float-in 0.7s ease both;
 }
 
 .panel-header h1 {
-  margin: 0.25rem 0 0.75rem;
-  font-size: 2rem;
+  margin: 0.2rem 0 0.5rem;
+  font-size: 1.7rem;
   line-height: 1.1;
 }
 
@@ -30,9 +30,15 @@
   color: var(--muted);
 }
 
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
 .panel-section h2 {
-  margin: 0 0 1rem;
-  font-size: 1.1rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ink);
@@ -43,14 +49,14 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   background: rgba(31, 26, 23, 0.08);
   border-radius: 999px;
-  padding: 0.3rem;
-  gap: 0.3rem;
+  padding: 0.2rem;
+  gap: 0.2rem;
 }
 
 .tab {
   border: none;
   background: transparent;
-  padding: 0.5rem 0.75rem;
+  padding: 0.4rem 0.65rem;
   border-radius: 999px;
   font-weight: 600;
   color: var(--muted);
@@ -66,31 +72,31 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  font-size: 0.9rem;
+  gap: 0.25rem;
+  font-size: 0.85rem;
 }
 
 .field input[type='file'],
 .field select,
 .scale-controls input[type='number'] {
-  padding: 0.6rem 0.7rem;
+  padding: 0.45rem 0.6rem;
   border-radius: 12px;
   border: 1px solid var(--panel-border);
   background: #fff;
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .field em {
   font-style: normal;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--muted);
   line-height: 1.4;
 }
 
 .hint {
-  margin: 0.75rem 0 0;
-  font-size: 0.8rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -122,7 +128,7 @@
 .scale-controls {
   display: grid;
   grid-template-columns: 1fr 90px;
-  gap: 0.75rem;
+  gap: 0.5rem;
   align-items: center;
 }
 
@@ -133,20 +139,21 @@
 .toggle-row {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
 }
 
 .button-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .ghost {
   border: 1px solid var(--panel-border);
   background: transparent;
   border-radius: 999px;
-  padding: 0.5rem 1rem;
+  padding: 0.4rem 0.85rem;
   cursor: pointer;
   font-weight: 600;
   color: var(--ink);
@@ -156,7 +163,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .stage {
