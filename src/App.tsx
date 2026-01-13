@@ -33,6 +33,8 @@ type GridSlot = {
 
 const gridRows = 5;
 const gridCols = 5;
+const gridCellGap = 3;
+const gridCellRadius = 8;
 
 const extractAtlasPageNames = (atlasText: string) => {
   const lines = atlasText.split(/\r?\n/);
@@ -251,24 +253,30 @@ function App() {
       return;
     }
     const { cellSize, gridSize, gridLeft, gridTop } = metrics;
+    const cellDrawSize = Math.max(cellSize - gridCellGap, 0);
+    const cellOffset = (cellSize - cellDrawSize) / 2;
     guide.clear();
+    for (let row = 0; row < gridRows; row += 1) {
+      for (let col = 0; col < gridCols; col += 1) {
+        const x = gridLeft + col * cellSize + cellOffset;
+        const y = gridTop + row * cellSize + cellOffset;
+        guide
+          .roundRect(
+            x + 2,
+            y + 4,
+            cellDrawSize,
+            cellDrawSize,
+            gridCellRadius
+          )
+          .fill({ color: 0x15121c, alpha: 0.55 });
+        guide
+          .roundRect(x, y, cellDrawSize, cellDrawSize, gridCellRadius)
+          .fill({ color: 0x2a2233, alpha: 1 });
+      }
+    }
     guide
       .rect(gridLeft, gridTop, gridSize, gridSize)
       .stroke({ width: 1, color: 0x2f241e, alpha: 0.35 });
-    for (let i = 1; i < gridCols; i += 1) {
-      const x = gridLeft + i * cellSize;
-      guide
-        .moveTo(x, gridTop)
-        .lineTo(x, gridTop + gridSize)
-        .stroke({ width: 1, color: 0x2f241e, alpha: 0.22 });
-    }
-    for (let i = 1; i < gridRows; i += 1) {
-      const y = gridTop + i * cellSize;
-      guide
-        .moveTo(gridLeft, y)
-        .lineTo(gridLeft + gridSize, y)
-        .stroke({ width: 1, color: 0x2f241e, alpha: 0.22 });
-    }
     guide.hitArea = new Rectangle(gridLeft, gridTop, gridSize, gridSize);
   };
 
@@ -287,10 +295,12 @@ function App() {
       return;
     }
     const { cellSize, gridLeft, gridTop } = metrics;
-    const x = gridLeft + col * cellSize;
-    const y = gridTop + row * cellSize;
+    const cellDrawSize = Math.max(cellSize - gridCellGap, 0);
+    const cellOffset = (cellSize - cellDrawSize) / 2;
+    const x = gridLeft + col * cellSize + cellOffset;
+    const y = gridTop + row * cellSize + cellOffset;
     hover
-      .rect(x, y, cellSize, cellSize)
+      .roundRect(x, y, cellDrawSize, cellDrawSize, gridCellRadius)
       .fill({ color: 0xff7a4a, alpha: 0.12 })
       .stroke({ width: 1, color: 0xff7a4a, alpha: 0.35 });
   };
@@ -313,7 +323,7 @@ function App() {
     } else {
       if (!gridGuideRef.current) {
         gridGuideRef.current = new Graphics();
-        gridGuideRef.current.zIndex = 1;
+        gridGuideRef.current.zIndex = 0;
         gridGuideRef.current.eventMode = "static";
         gridGuideRef.current.cursor = "pointer";
         gridGuideRef.current.on("pointerdown", (event) => {
@@ -806,6 +816,7 @@ function App() {
       }
       const result = await createSpineFromFiles(files, slotId);
 
+      result.spine.zIndex = 5;
       result.spine.scale.set(slotScale);
       gridSpinesRef.current.set(slotId, result.spine);
       gridAssetsRef.current.set(slotId, result.assets);
