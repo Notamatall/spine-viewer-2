@@ -77,6 +77,7 @@
 }
 
 .field input[type='file'],
+.field input[type='text'],
 .field select,
 .scale-controls input[type='number'] {
   padding: 0.45rem 0.6rem;
@@ -237,6 +238,48 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.18em;
+  color: var(--accent-2);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(31, 26, 23, 0.35);
+  backdrop-filter: blur(2px);
+  z-index: 20;
+}
+
+.modal {
+  width: min(440px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  box-shadow: var(--panel-shadow);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  animation: float-in 0.3s ease both;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.modal-header h3 {
+  margin: 0.35rem 0 0;
+  font-size: 1.15rem;
+}
+
+.modal-error {
+  margin: 0;
+  font-size: 0.8rem;
   color: var(--accent-2);
 }
 

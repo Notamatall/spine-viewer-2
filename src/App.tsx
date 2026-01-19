@@ -4,6 +4,8 @@ import {
   Assets,
   Graphics,
   Rectangle,
+  Sprite,
+  Texture,
   TextureSource,
 } from "pixi.js";
 import { Spine } from "@esotericsoftware/spine-pixi-v8";
@@ -105,6 +107,10 @@ function App() {
   const [multiScale, setMultiScale] = useState(true);
   const [gridCellSize, setGridCellSize] = useState(120);
   const [showGridOutlines, setShowGridOutlines] = useState(true);
+  const [showSlotModal, setShowSlotModal] = useState(false);
+  const [slotNameInput, setSlotNameInput] = useState("");
+  const [slotImageFile, setSlotImageFile] = useState<File | null>(null);
+  const [slotImageError, setSlotImageError] = useState<string | null>(null);
   const [gridSlots, setGridSlots] = useState<GridSlot[]>(() =>
     Array.from({ length: gridRows * gridCols }, (_, index) => {
       const row = Math.floor(index / gridCols);
@@ -589,6 +595,71 @@ function App() {
 
   const getActiveSlot = () =>
     gridSlots.find((slot) => slot.id === activeSlotId) ?? null;
+
+  const getActiveSpine = () => {
+    if (viewMode === "single") {
+      return singleSpineRef.current;
+    }
+    return gridSpinesRef.current.get(activeSlotId) ?? null;
+  };
+
+  const closeSlotModal = () => {
+    setShowSlotModal(false);
+    setSlotImageError(null);
+    setSlotImageFile(null);
+  };
+
+  const handleSlotImageInsert = async () => {
+    const slotName = slotNameInput.trim();
+    if (!slotName || !slotImageFile) {
+      setSlotImageError("Enter a slot name and choose an image.");
+      return;
+    }
+
+    const spine = getActiveSpine();
+    if (!spine) {
+      setSlotImageError("Load a spine before inserting a slot image.");
+      return;
+    }
+
+    const slot = spine.skeleton.findSlot(slotName);
+    if (!slot) {
+      setSlotImageError(`Slot "${slotName}" was not found.`);
+      return;
+    }
+
+    setSlotImageError(null);
+
+    const bitmap = await createImageBitmap(slotImageFile);
+    const textureSource = TextureSource.from(bitmap);
+    const texture = Texture.from(textureSource);
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+
+    const attachment = slot.getAttachment();
+    if (
+      attachment &&
+      "width" in attachment &&
+      "height" in attachment &&
+      typeof attachment.width === "number" &&
+      typeof attachment.height === "number" &&
+      attachment.width > 0 &&
+      attachment.height > 0
+    ) {
+      sprite.width = attachment.width;
+      sprite.height = attachment.height;
+    }
+
+    const existing = spine.getSlotObject(slotName);
+    if (existing) {
+      spine.removeSlotObject(slotName);
+      existing.destroy({ children: true, texture: true, textureSource: true });
+    }
+
+    spine.addSlotObject(slotName, sprite);
+    closeSlotModal();
+    setSlotNameInput("");
+  };
 
   const createSpineFromFiles = async (
     files: { json: File; atlas: File; images: File[] },
@@ -1092,6 +1163,15 @@ function App() {
               <p className="hint">
                 PNG filenames must match the atlas page names.
               </p>
+              <div className="button-row">
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={() => setShowSlotModal(true)}
+                >
+                  Insert Slot Image
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -1165,6 +1245,13 @@ function App() {
                   onClick={() => setShowGridOutlines((prev) => !prev)}
                 >
                   {showGridOutlines ? "Hide outlines" : "Show outlines"}
+                </button>
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={() => setShowSlotModal(true)}
+                >
+                  Insert Slot Image
                 </button>
               </div>
             </>
@@ -1487,6 +1574,57 @@ function App() {
           )} */}
         </div>
       </main>
+      {showSlotModal ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal">
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Slot image</p>
+                <h3>Insert image into a slot</h3>
+              </div>
+              <button
+                className="ghost"
+                type="button"
+                onClick={closeSlotModal}
+              >
+                Close
+              </button>
+            </div>
+            <label className="field">
+              <span>Slot name</span>
+              <input
+                type="text"
+                placeholder="e.g. head-slot"
+                value={slotNameInput}
+                onChange={(event) => setSlotNameInput(event.target.value)}
+              />
+              <em>Use the exact slot name from the Spine skeleton.</em>
+            </label>
+            <label className="field">
+              <span>Image</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) =>
+                  setSlotImageFile(event.target.files?.[0] ?? null)
+                }
+              />
+              <em>PNG/JPEG/WebP all work.</em>
+            </label>
+            {slotImageError ? (
+              <p className="modal-error">{slotImageError}</p>
+            ) : null}
+            <div className="button-row">
+              <button className="primary" type="button" onClick={handleSlotImageInsert}>
+                Insert image
+              </button>
+              <button className="ghost" type="button" onClick={closeSlotModal}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
