@@ -79,7 +79,8 @@
 .field input[type='file'],
 .field input[type='text'],
 .field select,
-.scale-controls input[type='number'] {
+.scale-controls input[type='number'],
+.grid-size-field input[type='number'] {
   padding: 0.45rem 0.6rem;
   border-radius: 12px;
   border: 1px solid var(--panel-border);
@@ -135,6 +136,22 @@
 
 .scale-controls input[type='range'] {
   accent-color: var(--accent);
+}
+
+.grid-size-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.grid-size-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .toggle-row {

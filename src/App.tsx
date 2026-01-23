@@ -33,8 +33,9 @@ type GridSlot = {
   error: string | null;
 };
 
-const gridRows = 5;
-const gridCols = 5;
+const defaultGridRows = 5;
+const defaultGridCols = 5;
+const minGridSize = 4;
 const gridCellGap = 3;
 const gridCellRadius = 8;
 
@@ -61,6 +62,28 @@ const extractAtlasPageNames = (atlasText: string) => {
   return names;
 };
 
+const createGridSlots = (rows: number, cols: number): GridSlot[] =>
+  Array.from({ length: rows * cols }, (_, index) => {
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    return {
+      id: `slot-${row}-${col}`,
+      label: `R${row + 1}C${col + 1}`,
+      row,
+      col,
+      hasSpine: false,
+      animations: [],
+      selectedAnimation: "",
+      skins: [],
+      selectedSkin: "",
+      isLooping: true,
+      isPlaying: true,
+      scale: 1,
+      status: "Empty slot.",
+      error: null,
+    };
+  });
+
 function App() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
@@ -82,11 +105,12 @@ function App() {
     if (!app) {
       return null;
     }
-    const cellSize = gridCellSize;
-    const gridSize = cellSize * gridCols;
-    const gridLeft = app.renderer.width / 2 - gridSize / 2;
-    const gridTop = app.renderer.height / 2 - gridSize / 2;
-    return { cellSize, gridSize, gridLeft, gridTop };
+    const cellSize = gridCellSize * gridBoardScale;
+    const gridWidth = cellSize * gridCols;
+    const gridHeight = cellSize * gridRows;
+    const gridLeft = app.renderer.width / 2 - gridWidth / 2;
+    const gridTop = app.renderer.height / 2 - gridHeight / 2;
+    return { cellSize, gridWidth, gridHeight, gridLeft, gridTop };
   };
 
   const [viewMode, setViewMode] = useState<"single" | "grid">("single");
@@ -103,7 +127,10 @@ function App() {
   const [selectedSkin, setSelectedSkin] = useState("");
   const [isLooping, setIsLooping] = useState(true);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [gridRows, setGridRows] = useState(defaultGridRows);
+  const [gridCols, setGridCols] = useState(defaultGridCols);
   const [gridScale, setGridScale] = useState(1);
+  const [gridBoardScale, setGridBoardScale] = useState(1);
   const [multiScale, setMultiScale] = useState(true);
   const [gridCellSize, setGridCellSize] = useState(120);
   const [showGridOutlines, setShowGridOutlines] = useState(true);
@@ -112,26 +139,7 @@ function App() {
   const [slotImageFile, setSlotImageFile] = useState<File | null>(null);
   const [slotImageError, setSlotImageError] = useState<string | null>(null);
   const [gridSlots, setGridSlots] = useState<GridSlot[]>(() =>
-    Array.from({ length: gridRows * gridCols }, (_, index) => {
-      const row = Math.floor(index / gridCols);
-      const col = index % gridCols;
-      return {
-        id: `slot-${row}-${col}`,
-        label: `R${row + 1}C${col + 1}`,
-        row,
-        col,
-        hasSpine: false,
-        animations: [],
-        selectedAnimation: "",
-        skins: [],
-        selectedSkin: "",
-        isLooping: true,
-        isPlaying: true,
-        scale: 1,
-        status: "Empty slot.",
-        error: null,
-      };
-    })
+    createGridSlots(gridRows, gridCols)
   );
   const [activeSlotId, setActiveSlotId] = useState("slot-0-0");
   const [status, setStatus] = useState("Drop files to get started.");
@@ -170,7 +178,82 @@ function App() {
     drawGridGuide();
     layoutGridSpines();
     drawGridHover(null, null);
-  }, [gridCellSize]);
+  }, [gridCellSize, gridBoardScale, gridRows, gridCols]);
+
+  const clearGridResources = async ({
+    resetFiles = true,
+    updateSlots = true,
+    setLoading = true,
+  }: {
+    resetFiles?: boolean;
+    updateSlots?: boolean;
+    setLoading?: boolean;
+  } = {}) => {
+    const slotIds = new Set<string>([
+      ...gridSpinesRef.current.keys(),
+      ...gridAssetsRef.current.keys(),
+      ...gridOutlinesRef.current.keys(),
+    ]);
+    if (slotIds.size === 0 && !resetFiles && !updateSlots) {
+      return;
+    }
+    if (setLoading) {
+      setIsLoading(true);
+    }
+    for (const slotId of slotIds) {
+      const assets = gridAssetsRef.current.get(slotId);
+      if (assets) {
+        await Assets.unload(assets.keys);
+        assets.urls.forEach((url) => URL.revokeObjectURL(url));
+        gridAssetsRef.current.delete(slotId);
+      }
+      const spine = gridSpinesRef.current.get(slotId);
+      if (spine) {
+        spine.destroy({ children: true, texture: true, textureSource: true });
+        gridSpinesRef.current.delete(slotId);
+      }
+      const outline = gridOutlinesRef.current.get(slotId);
+      if (outline) {
+        outline.destroy();
+        gridOutlinesRef.current.delete(slotId);
+      }
+      if (updateSlots) {
+        updateGridSlot(slotId, (slot) => ({
+          ...slot,
+          hasSpine: false,
+          animations: [],
+          selectedAnimation: "",
+          skins: [],
+          selectedSkin: "",
+          status: "Empty slot.",
+          error: null,
+        }));
+      }
+    }
+    lastGridSignatureRef.current = "";
+    if (resetFiles) {
+      setGridJsonFile(null);
+      setGridAtlasFile(null);
+      setGridImageFiles([]);
+      if (gridFileInputRef.current) {
+        gridFileInputRef.current.value = "";
+      }
+    }
+    syncStageForMode();
+    if (setLoading) {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setGridSlots(createGridSlots(gridRows, gridCols));
+    setActiveSlotId("slot-0-0");
+    void clearGridResources({
+      resetFiles: false,
+      updateSlots: false,
+      setLoading: false,
+    });
+  }, [gridRows, gridCols]);
 
   const centerSingleSpine = (spine: Spine) => {
     const app = appRef.current;
@@ -258,7 +341,7 @@ function App() {
     if (!metrics) {
       return;
     }
-    const { cellSize, gridSize, gridLeft, gridTop } = metrics;
+    const { cellSize, gridWidth, gridHeight, gridLeft, gridTop } = metrics;
     const cellDrawSize = Math.max(cellSize - gridCellGap, 0);
     const cellOffset = (cellSize - cellDrawSize) / 2;
     guide.clear();
@@ -281,9 +364,9 @@ function App() {
       }
     }
     guide
-      .rect(gridLeft, gridTop, gridSize, gridSize)
+      .rect(gridLeft, gridTop, gridWidth, gridHeight)
       .stroke({ width: 1, color: 0x2f241e, alpha: 0.35 });
-    guide.hitArea = new Rectangle(gridLeft, gridTop, gridSize, gridSize);
+    guide.hitArea = new Rectangle(gridLeft, gridTop, gridWidth, gridHeight);
   };
 
   const drawGridHover = (row: number | null, col: number | null) => {
@@ -341,13 +424,13 @@ function App() {
           if (!metrics) {
             return;
           }
-          const { gridLeft, gridTop, gridSize, cellSize } = metrics;
+          const { gridLeft, gridTop, gridWidth, gridHeight, cellSize } = metrics;
           const { x, y } = event.global;
           if (
             x < gridLeft ||
             y < gridTop ||
-            x > gridLeft + gridSize ||
-            y > gridTop + gridSize
+            x > gridLeft + gridWidth ||
+            y > gridTop + gridHeight
           ) {
             return;
           }
@@ -417,12 +500,12 @@ function App() {
           event.clientX,
           event.clientY
         );
-        const { gridLeft, gridTop, gridSize, cellSize } = metrics;
+        const { gridLeft, gridTop, gridWidth, gridHeight, cellSize } = metrics;
         if (
           point.x < gridLeft ||
           point.y < gridTop ||
-          point.x > gridLeft + gridSize ||
-          point.y > gridTop + gridSize
+          point.x > gridLeft + gridWidth ||
+          point.y > gridTop + gridHeight
         ) {
           return;
         }
@@ -446,12 +529,12 @@ function App() {
           event.clientX,
           event.clientY
         );
-        const { gridLeft, gridTop, gridSize, cellSize } = metrics;
+        const { gridLeft, gridTop, gridWidth, gridHeight, cellSize } = metrics;
         if (
           point.x < gridLeft ||
           point.y < gridTop ||
-          point.x > gridLeft + gridSize ||
-          point.y > gridTop + gridSize
+          point.x > gridLeft + gridWidth ||
+          point.y > gridTop + gridHeight
         ) {
           drawGridHover(null, null);
           return;
@@ -1001,44 +1084,7 @@ function App() {
     if (slotIds.length === 0) {
       return;
     }
-    setIsLoading(true);
-    for (const slotId of slotIds) {
-      const assets = gridAssetsRef.current.get(slotId);
-      if (assets) {
-        await Assets.unload(assets.keys);
-        assets.urls.forEach((url) => URL.revokeObjectURL(url));
-        gridAssetsRef.current.delete(slotId);
-      }
-      const spine = gridSpinesRef.current.get(slotId);
-      if (spine) {
-        spine.destroy({ children: true, texture: true, textureSource: true });
-        gridSpinesRef.current.delete(slotId);
-      }
-      const outline = gridOutlinesRef.current.get(slotId);
-      if (outline) {
-        outline.destroy();
-        gridOutlinesRef.current.delete(slotId);
-      }
-      updateGridSlot(slotId, (slot) => ({
-        ...slot,
-        hasSpine: false,
-        animations: [],
-        selectedAnimation: "",
-        skins: [],
-        selectedSkin: "",
-        status: "Empty slot.",
-        error: null,
-      }));
-    }
-    lastGridSignatureRef.current = "";
-    setGridJsonFile(null);
-    setGridAtlasFile(null);
-    setGridImageFiles([]);
-    if (gridFileInputRef.current) {
-      gridFileInputRef.current.value = "";
-    }
-    syncStageForMode();
-    setIsLoading(false);
+    await clearGridResources();
   };
 
   useEffect(() => {
@@ -1355,6 +1401,72 @@ function App() {
         {viewMode === "grid" ? (
           <div className="panel-section">
             <h2>Grid</h2>
+            <label className="field">
+              <span>Grid size</span>
+              <div className="grid-size-controls">
+                <label className="grid-size-field">
+                  <span>Rows</span>
+                  <input
+                    type="number"
+                    min={minGridSize}
+                    step={1}
+                    value={gridRows}
+                    onChange={(event) => {
+                      const nextRows = Math.max(
+                        minGridSize,
+                        Math.floor(Number(event.target.value || minGridSize))
+                      );
+                      setGridRows(nextRows);
+                    }}
+                  />
+                </label>
+                <label className="grid-size-field">
+                  <span>Columns</span>
+                  <input
+                    type="number"
+                    min={minGridSize}
+                    step={1}
+                    value={gridCols}
+                    onChange={(event) => {
+                      const nextCols = Math.max(
+                        minGridSize,
+                        Math.floor(Number(event.target.value || minGridSize))
+                      );
+                      setGridCols(nextCols);
+                    }}
+                  />
+                </label>
+              </div>
+            </label>
+            <label className="field">
+              <span>Board scale</span>
+              <div className="scale-controls">
+                <input
+                  type="range"
+                  min={0.5}
+                  max={2}
+                  step={0.05}
+                  value={gridBoardScale}
+                  onChange={(event) => {
+                    const nextScale = Number(event.target.value || 1);
+                    const clamped = Math.min(2, Math.max(0.5, nextScale));
+                    setGridBoardScale(clamped);
+                  }}
+                />
+                <input
+                  type="number"
+                  min={0.5}
+                  max={2}
+                  step={0.05}
+                  value={gridBoardScale}
+                  onChange={(event) => {
+                    const nextScale = Number(event.target.value || 1);
+                    const clamped = Math.min(2, Math.max(0.5, nextScale));
+                    setGridBoardScale(clamped);
+                  }}
+                />
+              </div>
+            </label>
             <label className="field">
               <span>Cell size</span>
               <div className="scale-controls">
