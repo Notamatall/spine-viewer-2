@@ -91,9 +91,12 @@ function App() {
   const singleOutlineRef = useRef<Graphics | null>(null);
   const lastAssetsRef = useRef<LoadedAssets | null>(null);
   const gridFileInputRef = useRef<HTMLInputElement | null>(null);
+  const boardFileInputRef = useRef<HTMLInputElement | null>(null);
   const gridSpinesRef = useRef<Map<string, Spine>>(new Map());
   const gridAssetsRef = useRef<Map<string, LoadedAssets>>(new Map());
   const gridOutlinesRef = useRef<Map<string, Graphics>>(new Map());
+  const boardSpineRef = useRef<Spine | null>(null);
+  const boardAssetsRef = useRef<LoadedAssets | null>(null);
   const gridGuideRef = useRef<Graphics | null>(null);
   const gridHoverRef = useRef<Graphics | null>(null);
   const assetsReadyRef = useRef(false);
@@ -120,6 +123,11 @@ function App() {
   const [gridJsonFile, setGridJsonFile] = useState<File | null>(null);
   const [gridAtlasFile, setGridAtlasFile] = useState<File | null>(null);
   const [gridImageFiles, setGridImageFiles] = useState<File[]>([]);
+  const [boardJsonFile, setBoardJsonFile] = useState<File | null>(null);
+  const [boardAtlasFile, setBoardAtlasFile] = useState<File | null>(null);
+  const [boardImageFiles, setBoardImageFiles] = useState<File[]>([]);
+  const [boardError, setBoardError] = useState<string | null>(null);
+  const [isBoardLoaded, setIsBoardLoaded] = useState(false);
   const [scale, setScale] = useState(1);
   const [animations, setAnimations] = useState<string[]>([]);
   const [selectedAnimation, setSelectedAnimation] = useState("");
@@ -148,6 +156,7 @@ function App() {
   const gridSlotsRef = useRef<GridSlot[]>(gridSlots);
   const lastSingleSignatureRef = useRef("");
   const lastGridSignatureRef = useRef("");
+  const lastBoardSignatureRef = useRef("");
 
   useEffect(() => {
     gridSlotsRef.current = gridSlots;
@@ -177,6 +186,7 @@ function App() {
     }
     drawGridGuide();
     layoutGridSpines();
+    layoutGridBoard();
     drawGridHover(null, null);
   }, [gridCellSize, gridBoardScale, gridRows, gridCols]);
 
@@ -331,6 +341,24 @@ function App() {
     });
   };
 
+  const layoutGridBoard = () => {
+    const spine = boardSpineRef.current;
+    if (!spine) {
+      return;
+    }
+    const metrics = getGridMetrics();
+    if (!metrics) {
+      return;
+    }
+    const bounds = spine.getLocalBounds();
+    spine.pivot.set(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    spine.position.set(
+      metrics.gridLeft + metrics.gridWidth / 2,
+      metrics.gridTop + metrics.gridHeight / 2
+    );
+    spine.scale.set(gridBoardScale);
+  };
+
   const drawGridGuide = () => {
     const app = appRef.current;
     const guide = gridGuideRef.current;
@@ -445,6 +473,10 @@ function App() {
         gridHoverRef.current.zIndex = 2;
       }
       drawGridGuide();
+      if (boardSpineRef.current) {
+        boardSpineRef.current.zIndex = -1;
+        app.stage.addChild(boardSpineRef.current);
+      }
       app.stage.addChild(gridGuideRef.current);
       app.stage.addChild(gridHoverRef.current);
       gridSpinesRef.current.forEach((spine) => {
@@ -456,6 +488,7 @@ function App() {
         });
       }
       layoutGridSpines();
+      layoutGridBoard();
     }
   };
 
@@ -562,6 +595,7 @@ function App() {
         } else if (viewModeRef.current === "grid") {
           drawGridGuide();
           layoutGridSpines();
+          layoutGridBoard();
         }
       };
 
@@ -621,6 +655,14 @@ function App() {
       if (gridHoverRef.current) {
         gridHoverRef.current.destroy();
         gridHoverRef.current = null;
+      }
+      if (boardSpineRef.current) {
+        boardSpineRef.current.destroy({
+          children: true,
+          texture: true,
+          textureSource: true,
+        });
+        boardSpineRef.current = null;
       }
       if (app) {
         // app.destroy(true)
@@ -1087,6 +1129,77 @@ function App() {
     await clearGridResources();
   };
 
+  const handleBoardClear = async () => {
+    if (boardAssetsRef.current) {
+      await Assets.unload(boardAssetsRef.current.keys);
+      boardAssetsRef.current.urls.forEach((url) => URL.revokeObjectURL(url));
+      boardAssetsRef.current = null;
+    }
+    if (boardSpineRef.current) {
+      boardSpineRef.current.destroy({
+        children: true,
+        texture: true,
+        textureSource: true,
+      });
+      boardSpineRef.current = null;
+    }
+    setBoardJsonFile(null);
+    setBoardAtlasFile(null);
+    setBoardImageFiles([]);
+    setBoardError(null);
+    setIsBoardLoaded(false);
+    if (boardFileInputRef.current) {
+      boardFileInputRef.current.value = "";
+    }
+    drawGridGuide();
+    syncStageForMode();
+  };
+
+  const handleBoardLoad = async () => {
+    if (!boardJsonFile || !boardAtlasFile || boardImageFiles.length === 0) {
+      setBoardError("Select the .json, .atlas, and at least one .png file.");
+      return;
+    }
+
+    setIsLoading(true);
+    setBoardError(null);
+
+    try {
+      if (boardAssetsRef.current) {
+        await Assets.unload(boardAssetsRef.current.keys);
+        boardAssetsRef.current.urls.forEach((url) => URL.revokeObjectURL(url));
+        boardAssetsRef.current = null;
+      }
+      if (boardSpineRef.current) {
+        boardSpineRef.current.destroy({
+          children: true,
+          texture: true,
+          textureSource: true,
+        });
+        boardSpineRef.current = null;
+      }
+
+      const result = await createSpineFromFiles(
+        { json: boardJsonFile, atlas: boardAtlasFile, images: boardImageFiles },
+        "board"
+      );
+
+      result.spine.zIndex = 1;
+      boardSpineRef.current = result.spine;
+      boardAssetsRef.current = result.assets;
+      layoutGridBoard();
+      setIsBoardLoaded(true);
+      syncStageForMode();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to load gameboard spine.";
+      setBoardError(message);
+      setIsBoardLoaded(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (viewMode !== "single" || isLoading) {
       return;
@@ -1140,6 +1253,29 @@ function App() {
     gridAtlasFile,
     gridImageFiles,
   ]);
+
+  useEffect(() => {
+    if (viewMode !== "grid" || isLoading) {
+      return;
+    }
+    if (!boardJsonFile || !boardAtlasFile || boardImageFiles.length === 0) {
+      return;
+    }
+    const signature = [
+      boardJsonFile.name,
+      boardJsonFile.lastModified,
+      boardAtlasFile.name,
+      boardAtlasFile.lastModified,
+      ...boardImageFiles.map(
+        (file) => `${file.name}-${file.lastModified}-${file.size}`
+      ),
+    ].join("|");
+    if (signature === lastBoardSignatureRef.current) {
+      return;
+    }
+    lastBoardSignatureRef.current = signature;
+    handleBoardLoad();
+  }, [viewMode, isLoading, boardJsonFile, boardAtlasFile, boardImageFiles]);
 
   const activeSlot = getActiveSlot();
   const activeStatus =
@@ -1246,6 +1382,52 @@ function App() {
                         .join(", ")
                     : "Pick JSON, atlas, and PNG pages together"}
                 </em>
+              </label>
+              <label className="field">
+                <span>Gameboard spine</span>
+                <input
+                  type="file"
+                  accept=".json,.atlas,.png"
+                  multiple
+                  ref={boardFileInputRef}
+                  onChange={(event) => {
+                    const parsed = parseSelectedFiles(event.target.files);
+                    setBoardJsonFile(parsed.json);
+                    setBoardAtlasFile(parsed.atlas);
+                    setBoardImageFiles(parsed.images);
+                  }}
+                  style={{ display: "none" }}
+                />
+                <div className="button-row">
+                  <button
+                    className="ghost"
+                    type="button"
+                    onClick={() => boardFileInputRef.current?.click()}
+                    disabled={isLoading}
+                  >
+                    {isBoardLoaded ? "Replace gameboard spine" : "Load gameboard spine"}
+                  </button>
+                  <button
+                    className="ghost"
+                    type="button"
+                    onClick={handleBoardClear}
+                    disabled={!isBoardLoaded && !boardJsonFile}
+                  >
+                    Clear gameboard
+                  </button>
+                </div>
+                <em>
+                  {boardJsonFile || boardAtlasFile || boardImageFiles.length > 0
+                    ? [
+                        boardJsonFile?.name,
+                        boardAtlasFile?.name,
+                        ...boardImageFiles.map((file) => file.name),
+                      ]
+                        .filter(Boolean)
+                        .join(", ")
+                    : "Load a board spine to replace the grid cells."}
+                </em>
+                {boardError ? <p className="hint">{boardError}</p> : null}
               </label>
               <label className="field">
                 <span>Symbol Slot</span>
