@@ -36,7 +36,6 @@ type GridSlot = {
 const defaultGridRows = 5;
 const defaultGridCols = 5;
 const minGridSize = 4;
-const gridCellGap = 3;
 const gridCellRadius = 8;
 
 const extractAtlasPageNames = (atlasText: string) => {
@@ -109,11 +108,21 @@ function App() {
       return null;
     }
     const cellSize = gridCellSize * gridBoardScale;
-    const gridWidth = cellSize * gridCols;
-    const gridHeight = cellSize * gridRows;
+    const gapSize = gridCellGap * gridBoardScale;
+    const cellStep = cellSize + gapSize;
+    const gridWidth = cellSize * gridCols + gapSize * (gridCols - 1);
+    const gridHeight = cellSize * gridRows + gapSize * (gridRows - 1);
     const gridLeft = app.renderer.width / 2 - gridWidth / 2;
     const gridTop = app.renderer.height / 2 - gridHeight / 2;
-    return { cellSize, gridWidth, gridHeight, gridLeft, gridTop };
+    return {
+      cellSize,
+      gapSize,
+      cellStep,
+      gridWidth,
+      gridHeight,
+      gridLeft,
+      gridTop,
+    };
   };
 
   const [viewMode, setViewMode] = useState<"single" | "grid">("single");
@@ -141,6 +150,7 @@ function App() {
   const [gridBoardScale, setGridBoardScale] = useState(1);
   const [multiScale, setMultiScale] = useState(true);
   const [gridCellSize, setGridCellSize] = useState(120);
+  const [gridCellGap, setGridCellGap] = useState(3);
   const [showGridOutlines, setShowGridOutlines] = useState(true);
   const [showSlotModal, setShowSlotModal] = useState(false);
   const [slotNameInput, setSlotNameInput] = useState("");
@@ -188,7 +198,7 @@ function App() {
     layoutGridSpines();
     layoutGridBoard();
     drawGridHover(null, null);
-  }, [gridCellSize, gridBoardScale, gridRows, gridCols]);
+  }, [gridCellSize, gridCellGap, gridBoardScale, gridRows, gridCols]);
 
   const clearGridResources = async ({
     resetFiles = true,
@@ -328,15 +338,15 @@ function App() {
     if (!metrics) {
       return;
     }
-    const { cellSize, gridLeft, gridTop } = metrics;
+    const { cellSize, cellStep, gridLeft, gridTop } = metrics;
 
     gridSpinesRef.current.forEach((spine, slotId) => {
       const slot = gridSlotsRef.current.find((item) => item.id === slotId);
       if (!slot) {
         return;
       }
-      const x = gridLeft + slot.col * cellSize + cellSize / 2;
-      const y = gridTop + slot.row * cellSize + cellSize / 2;
+      const x = gridLeft + slot.col * cellStep + cellSize / 2;
+      const y = gridTop + slot.row * cellStep + cellSize / 2;
       spine.position.set(x, y);
     });
   };
@@ -369,14 +379,15 @@ function App() {
     if (!metrics) {
       return;
     }
-    const { cellSize, gridWidth, gridHeight, gridLeft, gridTop } = metrics;
-    const cellDrawSize = Math.max(cellSize - gridCellGap, 0);
-    const cellOffset = (cellSize - cellDrawSize) / 2;
+    const { cellSize, cellStep, gridWidth, gridHeight, gridLeft, gridTop } =
+      metrics;
+    const cellDrawSize = cellSize;
+    const cellOffset = 0;
     guide.clear();
     for (let row = 0; row < gridRows; row += 1) {
       for (let col = 0; col < gridCols; col += 1) {
-        const x = gridLeft + col * cellSize + cellOffset;
-        const y = gridTop + row * cellSize + cellOffset;
+        const x = gridLeft + col * cellStep + cellOffset;
+        const y = gridTop + row * cellStep + cellOffset;
         guide
           .roundRect(
             x + 2,
@@ -411,11 +422,11 @@ function App() {
     if (!metrics) {
       return;
     }
-    const { cellSize, gridLeft, gridTop } = metrics;
-    const cellDrawSize = Math.max(cellSize - gridCellGap, 0);
-    const cellOffset = (cellSize - cellDrawSize) / 2;
-    const x = gridLeft + col * cellSize + cellOffset;
-    const y = gridTop + row * cellSize + cellOffset;
+    const { cellSize, cellStep, gridLeft, gridTop } = metrics;
+    const cellDrawSize = cellSize;
+    const cellOffset = 0;
+    const x = gridLeft + col * cellStep + cellOffset;
+    const y = gridTop + row * cellStep + cellOffset;
     hover
       .roundRect(x, y, cellDrawSize, cellDrawSize, gridCellRadius)
       .fill({ color: 0xff7a4a, alpha: 0.12 })
@@ -452,7 +463,14 @@ function App() {
           if (!metrics) {
             return;
           }
-          const { gridLeft, gridTop, gridWidth, gridHeight, cellSize } = metrics;
+          const {
+            gridLeft,
+            gridTop,
+            gridWidth,
+            gridHeight,
+            cellSize,
+            cellStep,
+          } = metrics;
           const { x, y } = event.global;
           if (
             x < gridLeft ||
@@ -462,8 +480,15 @@ function App() {
           ) {
             return;
           }
-          const col = Math.floor((x - gridLeft) / cellSize);
-          const row = Math.floor((y - gridTop) / cellSize);
+          const localX = x - gridLeft;
+          const localY = y - gridTop;
+          const col = Math.floor(localX / cellStep);
+          const row = Math.floor(localY / cellStep);
+          const withinX = localX - col * cellStep;
+          const withinY = localY - row * cellStep;
+          if (withinX > cellSize || withinY > cellSize) {
+            return;
+          }
           const slotId = `slot-${row}-${col}`;
           setActiveSlotId(slotId);
         });
@@ -533,7 +558,14 @@ function App() {
           event.clientX,
           event.clientY
         );
-        const { gridLeft, gridTop, gridWidth, gridHeight, cellSize } = metrics;
+        const {
+          gridLeft,
+          gridTop,
+          gridWidth,
+          gridHeight,
+          cellSize,
+          cellStep,
+        } = metrics;
         if (
           point.x < gridLeft ||
           point.y < gridTop ||
@@ -542,8 +574,15 @@ function App() {
         ) {
           return;
         }
-        const col = Math.floor((point.x - gridLeft) / cellSize);
-        const row = Math.floor((point.y - gridTop) / cellSize);
+        const localX = point.x - gridLeft;
+        const localY = point.y - gridTop;
+        const col = Math.floor(localX / cellStep);
+        const row = Math.floor(localY / cellStep);
+        const withinX = localX - col * cellStep;
+        const withinY = localY - row * cellStep;
+        if (withinX > cellSize || withinY > cellSize) {
+          return;
+        }
         const slotId = `slot-${row}-${col}`;
         setActiveSlotId(slotId);
       };
@@ -562,7 +601,14 @@ function App() {
           event.clientX,
           event.clientY
         );
-        const { gridLeft, gridTop, gridWidth, gridHeight, cellSize } = metrics;
+        const {
+          gridLeft,
+          gridTop,
+          gridWidth,
+          gridHeight,
+          cellSize,
+          cellStep,
+        } = metrics;
         if (
           point.x < gridLeft ||
           point.y < gridTop ||
@@ -572,8 +618,16 @@ function App() {
           drawGridHover(null, null);
           return;
         }
-        const col = Math.floor((point.x - gridLeft) / cellSize);
-        const row = Math.floor((point.y - gridTop) / cellSize);
+        const localX = point.x - gridLeft;
+        const localY = point.y - gridTop;
+        const col = Math.floor(localX / cellStep);
+        const row = Math.floor(localY / cellStep);
+        const withinX = localX - col * cellStep;
+        const withinY = localY - row * cellStep;
+        if (withinX > cellSize || withinY > cellSize) {
+          drawGridHover(null, null);
+          return;
+        }
         drawGridHover(row, col);
       };
       const handleCanvasLeave = () => {
@@ -1672,6 +1726,33 @@ function App() {
                   onChange={(event) => {
                     const nextSize = Number(event.target.value || 120);
                     setGridCellSize(nextSize);
+                  }}
+                />
+              </div>
+            </label>
+            <label className="field">
+              <span>Cell gap</span>
+              <div className="scale-controls">
+                <input
+                  type="range"
+                  min={0}
+                  max={40}
+                  step={1}
+                  value={gridCellGap}
+                  onChange={(event) => {
+                    const nextGap = Number(event.target.value || 0);
+                    setGridCellGap(Math.max(0, Math.min(40, nextGap)));
+                  }}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={80}
+                  step={1}
+                  value={gridCellGap}
+                  onChange={(event) => {
+                    const nextGap = Number(event.target.value || 0);
+                    setGridCellGap(Math.max(0, Math.min(80, nextGap)));
                   }}
                 />
               </div>
