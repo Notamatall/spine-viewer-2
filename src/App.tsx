@@ -107,17 +107,23 @@ function App() {
     if (!app) {
       return null;
     }
-    const cellSize = gridCellSize * gridBoardScale;
-    const gapSize = gridCellGap * gridBoardScale;
-    const cellStep = cellSize + gapSize;
-    const gridWidth = cellSize * gridCols + gapSize * (gridCols - 1);
-    const gridHeight = cellSize * gridRows + gapSize * (gridRows - 1);
+    const cellWidth = gridCellWidth * gridBoardScale;
+    const cellHeight = gridCellHeight * gridBoardScale;
+    const gapX = gridCellGapX * gridBoardScale;
+    const gapY = gridCellGapY * gridBoardScale;
+    const cellStepX = cellWidth + gapX;
+    const cellStepY = cellHeight + gapY;
+    const gridWidth = cellWidth * gridCols + gapX * (gridCols - 1);
+    const gridHeight = cellHeight * gridRows + gapY * (gridRows - 1);
     const gridLeft = app.renderer.width / 2 - gridWidth / 2;
     const gridTop = app.renderer.height / 2 - gridHeight / 2;
     return {
-      cellSize,
-      gapSize,
-      cellStep,
+      cellWidth,
+      cellHeight,
+      gapX,
+      gapY,
+      cellStepX,
+      cellStepY,
       gridWidth,
       gridHeight,
       gridLeft,
@@ -149,8 +155,10 @@ function App() {
   const [gridScale, setGridScale] = useState(1);
   const [gridBoardScale, setGridBoardScale] = useState(1);
   const [multiScale, setMultiScale] = useState(true);
-  const [gridCellSize, setGridCellSize] = useState(120);
-  const [gridCellGap, setGridCellGap] = useState(3);
+  const [gridCellWidth, setGridCellWidth] = useState(120);
+  const [gridCellHeight, setGridCellHeight] = useState(120);
+  const [gridCellGapX, setGridCellGapX] = useState(3);
+  const [gridCellGapY, setGridCellGapY] = useState(3);
   const [showGridOutlines, setShowGridOutlines] = useState(true);
   const [showSlotModal, setShowSlotModal] = useState(false);
   const [slotNameInput, setSlotNameInput] = useState("");
@@ -198,7 +206,15 @@ function App() {
     layoutGridSpines();
     layoutGridBoard();
     drawGridHover(null, null);
-  }, [gridCellSize, gridCellGap, gridBoardScale, gridRows, gridCols]);
+  }, [
+    gridCellWidth,
+    gridCellHeight,
+    gridCellGapX,
+    gridCellGapY,
+    gridBoardScale,
+    gridRows,
+    gridCols,
+  ]);
 
   const clearGridResources = async ({
     resetFiles = true,
@@ -338,15 +354,16 @@ function App() {
     if (!metrics) {
       return;
     }
-    const { cellSize, cellStep, gridLeft, gridTop } = metrics;
+    const { cellWidth, cellHeight, cellStepX, cellStepY, gridLeft, gridTop } =
+      metrics;
 
     gridSpinesRef.current.forEach((spine, slotId) => {
       const slot = gridSlotsRef.current.find((item) => item.id === slotId);
       if (!slot) {
         return;
       }
-      const x = gridLeft + slot.col * cellStep + cellSize / 2;
-      const y = gridTop + slot.row * cellStep + cellSize / 2;
+      const x = gridLeft + slot.col * cellStepX + cellWidth / 2;
+      const y = gridTop + slot.row * cellStepY + cellHeight / 2;
       spine.position.set(x, y);
     });
   };
@@ -379,26 +396,35 @@ function App() {
     if (!metrics) {
       return;
     }
-    const { cellSize, cellStep, gridWidth, gridHeight, gridLeft, gridTop } =
-      metrics;
-    const cellDrawSize = cellSize;
+    const {
+      cellWidth,
+      cellHeight,
+      cellStepX,
+      cellStepY,
+      gridWidth,
+      gridHeight,
+      gridLeft,
+      gridTop,
+    } = metrics;
+    const cellDrawWidth = cellWidth;
+    const cellDrawHeight = cellHeight;
     const cellOffset = 0;
     guide.clear();
     for (let row = 0; row < gridRows; row += 1) {
       for (let col = 0; col < gridCols; col += 1) {
-        const x = gridLeft + col * cellStep + cellOffset;
-        const y = gridTop + row * cellStep + cellOffset;
+        const x = gridLeft + col * cellStepX + cellOffset;
+        const y = gridTop + row * cellStepY + cellOffset;
         guide
           .roundRect(
             x + 2,
             y + 4,
-            cellDrawSize,
-            cellDrawSize,
+            cellDrawWidth,
+            cellDrawHeight,
             gridCellRadius
           )
           .fill({ color: 0x15121c, alpha: 0.55 });
         guide
-          .roundRect(x, y, cellDrawSize, cellDrawSize, gridCellRadius)
+          .roundRect(x, y, cellDrawWidth, cellDrawHeight, gridCellRadius)
           .fill({ color: 0x2a2233, alpha: 1 });
       }
     }
@@ -422,15 +448,32 @@ function App() {
     if (!metrics) {
       return;
     }
-    const { cellSize, cellStep, gridLeft, gridTop } = metrics;
-    const cellDrawSize = cellSize;
+    const { cellWidth, cellHeight, cellStepX, cellStepY, gridLeft, gridTop } =
+      metrics;
+    const cellDrawWidth = cellWidth;
+    const cellDrawHeight = cellHeight;
     const cellOffset = 0;
-    const x = gridLeft + col * cellStep + cellOffset;
-    const y = gridTop + row * cellStep + cellOffset;
+    const x = gridLeft + col * cellStepX + cellOffset;
+    const y = gridTop + row * cellStepY + cellOffset;
     hover
-      .roundRect(x, y, cellDrawSize, cellDrawSize, gridCellRadius)
+      .roundRect(x, y, cellDrawWidth, cellDrawHeight, gridCellRadius)
       .fill({ color: 0xff7a4a, alpha: 0.12 })
       .stroke({ width: 1, color: 0xff7a4a, alpha: 0.35 });
+  };
+
+  const setGridLoopingForAll = (nextLoop: boolean) => {
+    setGridSlots((prev) =>
+      prev.map((slot) => ({
+        ...slot,
+        isLooping: nextLoop,
+      }))
+    );
+    gridSpinesRef.current.forEach((spine, slotId) => {
+      const slot = gridSlotsRef.current.find((item) => item.id === slotId);
+      if (slot?.selectedAnimation) {
+        spine.state.setAnimation(0, slot.selectedAnimation, nextLoop);
+      }
+    });
   };
 
   const syncStageForMode = () => {
@@ -468,8 +511,10 @@ function App() {
             gridTop,
             gridWidth,
             gridHeight,
-            cellSize,
-            cellStep,
+            cellWidth,
+            cellHeight,
+            cellStepX,
+            cellStepY,
           } = metrics;
           const { x, y } = event.global;
           if (
@@ -482,11 +527,11 @@ function App() {
           }
           const localX = x - gridLeft;
           const localY = y - gridTop;
-          const col = Math.floor(localX / cellStep);
-          const row = Math.floor(localY / cellStep);
-          const withinX = localX - col * cellStep;
-          const withinY = localY - row * cellStep;
-          if (withinX > cellSize || withinY > cellSize) {
+          const col = Math.floor(localX / cellStepX);
+          const row = Math.floor(localY / cellStepY);
+          const withinX = localX - col * cellStepX;
+          const withinY = localY - row * cellStepY;
+          if (withinX > cellWidth || withinY > cellHeight) {
             return;
           }
           const slotId = `slot-${row}-${col}`;
@@ -563,8 +608,10 @@ function App() {
           gridTop,
           gridWidth,
           gridHeight,
-          cellSize,
-          cellStep,
+          cellWidth,
+          cellHeight,
+          cellStepX,
+          cellStepY,
         } = metrics;
         if (
           point.x < gridLeft ||
@@ -576,11 +623,11 @@ function App() {
         }
         const localX = point.x - gridLeft;
         const localY = point.y - gridTop;
-        const col = Math.floor(localX / cellStep);
-        const row = Math.floor(localY / cellStep);
-        const withinX = localX - col * cellStep;
-        const withinY = localY - row * cellStep;
-        if (withinX > cellSize || withinY > cellSize) {
+        const col = Math.floor(localX / cellStepX);
+        const row = Math.floor(localY / cellStepY);
+        const withinX = localX - col * cellStepX;
+        const withinY = localY - row * cellStepY;
+        if (withinX > cellWidth || withinY > cellHeight) {
           return;
         }
         const slotId = `slot-${row}-${col}`;
@@ -606,8 +653,10 @@ function App() {
           gridTop,
           gridWidth,
           gridHeight,
-          cellSize,
-          cellStep,
+          cellWidth,
+          cellHeight,
+          cellStepX,
+          cellStepY,
         } = metrics;
         if (
           point.x < gridLeft ||
@@ -620,11 +669,11 @@ function App() {
         }
         const localX = point.x - gridLeft;
         const localY = point.y - gridTop;
-        const col = Math.floor(localX / cellStep);
-        const row = Math.floor(localY / cellStep);
-        const withinX = localX - col * cellStep;
-        const withinY = localY - row * cellStep;
-        if (withinX > cellSize || withinY > cellSize) {
+        const col = Math.floor(localX / cellStepX);
+        const row = Math.floor(localY / cellStepY);
+        const withinX = localX - col * cellStepX;
+        const withinY = localY - row * cellStepY;
+        if (withinX > cellWidth || withinY > cellHeight) {
           drawGridHover(null, null);
           return;
         }
@@ -1639,7 +1688,7 @@ function App() {
             <h2>Grid</h2>
             <label className="field">
               <span>Grid size</span>
-              <div className="grid-size-controls">
+              <div className="grid-size-controls stack">
                 <label className="grid-size-field">
                   <span>Rows</span>
                   <input
@@ -1705,56 +1754,120 @@ function App() {
             </label>
             <label className="field">
               <span>Cell size</span>
-              <div className="scale-controls">
-                <input
-                  type="range"
-                  min={60}
-                  max={240}
-                  step={5}
-                  value={gridCellSize}
-                  onChange={(event) => {
-                    const nextSize = Number(event.target.value);
-                    setGridCellSize(nextSize);
-                  }}
-                />
-                <input
-                  type="number"
-                  min={40}
-                  max={400}
-                  step={1}
-                  value={gridCellSize}
-                  onChange={(event) => {
-                    const nextSize = Number(event.target.value || 120);
-                    setGridCellSize(nextSize);
-                  }}
-                />
+              <div className="grid-size-controls stack">
+                <label className="grid-size-field">
+                  <span>Width</span>
+                  <div className="scale-controls stack">
+                    <input
+                      type="range"
+                      min={60}
+                      max={240}
+                      step={5}
+                      value={gridCellWidth}
+                      onChange={(event) => {
+                        const nextSize = Number(event.target.value);
+                        setGridCellWidth(nextSize);
+                      }}
+                    />
+                    <input
+                      type="number"
+                      min={40}
+                      max={400}
+                      step={1}
+                      value={gridCellWidth}
+                      onChange={(event) => {
+                        const nextSize = Number(event.target.value || 120);
+                        setGridCellWidth(nextSize);
+                      }}
+                    />
+                  </div>
+                </label>
+                <label className="grid-size-field">
+                  <span>Height</span>
+                  <div className="scale-controls stack">
+                    <input
+                      type="range"
+                      min={60}
+                      max={240}
+                      step={5}
+                      value={gridCellHeight}
+                      onChange={(event) => {
+                        const nextSize = Number(event.target.value);
+                        setGridCellHeight(nextSize);
+                      }}
+                    />
+                    <input
+                      type="number"
+                      min={40}
+                      max={400}
+                      step={1}
+                      value={gridCellHeight}
+                      onChange={(event) => {
+                        const nextSize = Number(event.target.value || 120);
+                        setGridCellHeight(nextSize);
+                      }}
+                    />
+                  </div>
+                </label>
               </div>
             </label>
             <label className="field">
               <span>Cell gap</span>
-              <div className="scale-controls">
-                <input
-                  type="range"
-                  min={0}
-                  max={40}
-                  step={1}
-                  value={gridCellGap}
-                  onChange={(event) => {
-                    const nextGap = Number(event.target.value || 0);
-                    setGridCellGap(Math.max(0, Math.min(40, nextGap)));
-                  }}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  max={80}
-                  step={1}
-                  value={gridCellGap}
-                  onChange={(event) => {
-                    const nextGap = Number(event.target.value || 0);
-                    setGridCellGap(Math.max(0, Math.min(80, nextGap)));
-                  }}
-                />
+              <div className="grid-size-controls stack">
+                <label className="grid-size-field">
+                  <span>Horizontal</span>
+                  <div className="scale-controls stack">
+                    <input
+                      type="range"
+                      min={0}
+                      max={40}
+                      step={1}
+                      value={gridCellGapX}
+                      onChange={(event) => {
+                        const nextGap = Number(event.target.value || 0);
+                        setGridCellGapX(Math.max(0, Math.min(40, nextGap)));
+                      }}
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={80}
+                      step={1}
+                      value={gridCellGapX}
+                      onChange={(event) => {
+                        const nextGap = Number(event.target.value || 0);
+                        setGridCellGapX(Math.max(0, Math.min(80, nextGap)));
+                      }}
+                    />
+                  </div>
+                </label>
+                <label className="grid-size-field">
+                  <span>Vertical</span>
+                  <div className="scale-controls stack">
+                    <input
+                      type="range"
+                      min={0}
+                      max={40}
+                      step={1}
+                      value={gridCellGapY}
+                      onChange={(event) => {
+                        const nextGap = Number(event.target.value || 0);
+                        setGridCellGapY(Math.max(0, Math.min(40, nextGap)));
+                      }}
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={80}
+                      step={1}
+                      value={gridCellGapY}
+                      onChange={(event) => {
+                        const nextGap = Number(event.target.value || 0);
+                        setGridCellGapY(Math.max(0, Math.min(80, nextGap)));
+                      }}
+                    />
+                  </div>
+                </label>
               </div>
             </label>
           </div>
@@ -1921,6 +2034,24 @@ function App() {
               />
               Loop
             </label>
+            {viewMode === "grid" ? (
+              <>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setGridLoopingForAll(false)}
+                >
+                  Disable all loops
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setGridLoopingForAll(true)}
+                >
+                  Enable all loops
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
       </aside>
