@@ -784,10 +784,17 @@ function App() {
 
   useEffect(() => {
     const spine = singleSpineRef.current;
-    if (!spine || !selectedAnimation) {
+    if (!spine) {
+      return;
+    }
+    if (!selectedAnimation) {
+      spine.state.clearTrack(0);
+      spine.skeleton.setToSetupPose();
+      centerSingleSpine(spine);
       return;
     }
     spine.state.setAnimation(0, selectedAnimation, isLooping);
+    centerSingleSpine(spine);
   }, [selectedAnimation, isLooping]);
 
   useEffect(() => {
@@ -1043,21 +1050,21 @@ function App() {
       );
       setAnimations(animationNames);
       setSkins(skinNames);
-      const initialAnimation = animationNames[0] || "";
-      setSelectedAnimation(initialAnimation);
+      setSelectedAnimation("");
       const initialSkin = skinNames[0] || "";
       setSelectedSkin(initialSkin);
       if (initialSkin) {
         result.spine.skeleton.setSkinByName(initialSkin);
         result.spine.skeleton.setSlotsToSetupPose();
       }
-      if (initialAnimation) {
-        result.spine.state.setAnimation(0, initialAnimation, isLooping);
-      }
       result.spine.state.timeScale = isPlaying ? 1 : 0;
 
       lastAssetsRef.current = result.assets;
-      setStatus("Spine loaded. Ready to animate.");
+      setStatus(
+        animationNames.length > 0
+          ? "Spine loaded. Pick an animation to play."
+          : "Spine loaded. No animations found."
+      );
       syncStageForMode();
     } catch (err) {
       const message =
@@ -1914,14 +1921,19 @@ function App() {
               ).length === 0 ? (
                 <option value="">No animations</option>
               ) : (
-                (viewMode === "single"
-                  ? animations
-                  : activeSlot?.animations ?? []
-                ).map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))
+                <>
+                  {viewMode === "single" ? (
+                    <option value="">No animation</option>
+                  ) : null}
+                  {(viewMode === "single"
+                    ? animations
+                    : activeSlot?.animations ?? []
+                  ).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </>
               )}
             </select>
           </label>
@@ -1992,7 +2004,7 @@ function App() {
               }}
               disabled={
                 viewMode === "single"
-                  ? animations.length === 0
+                  ? animations.length === 0 || !selectedAnimation
                   : (activeSlot?.animations.length ?? 0) === 0
               }
             >
