@@ -16,6 +16,19 @@ type LoadedAssets = {
   urls: string[];
 };
 
+type SpineSourceFiles = {
+  skeleton: File;
+  atlas: File;
+  images: File[];
+};
+
+type ParsedSelectedFiles = {
+  skeleton: File | null;
+  skeletons: File[];
+  atlas: File | null;
+  images: File[];
+};
+
 type GridSlot = {
   id: string;
   label: string;
@@ -37,6 +50,27 @@ const defaultGridRows = 5;
 const defaultGridCols = 5;
 const minGridSize = 4;
 const gridCellRadius = 8;
+const skeletonInputAccept = ".json,.skel,.atlas,.png,.webp";
+const fileSelectionError =
+  "Select a skeleton (.json or .skel), a .atlas, and at least one image file (.png or .webp).";
+const quickLoadEmptyState =
+  "Pick one or more skeletons (.json or .skel), an atlas, and image pages together";
+
+const isSkeletonFileName = (name: string) =>
+  name.endsWith(".json") || name.endsWith(".skel");
+
+const isAtlasImageFileName = (name: string) =>
+  name.endsWith(".png") || name.endsWith(".webp");
+
+const getSkeletonLoadParser = (file: File) =>
+  file.name.toLowerCase().endsWith(".skel")
+    ? "spineSkeletonLoader"
+    : "json";
+
+const compareFilesByName = (a: File, b: File) => a.name.localeCompare(b.name);
+
+const getFileToken = (file: File) =>
+  `${file.name}-${file.lastModified}-${file.size}`;
 
 const extractAtlasPageNames = (atlasText: string) => {
   const lines = atlasText.split(/\r?\n/);
@@ -132,13 +166,18 @@ function App() {
   };
 
   const [viewMode, setViewMode] = useState<"single" | "grid">("single");
-  const [jsonFile, setJsonFile] = useState<File | null>(null);
+  const [singleSkeletonFiles, setSingleSkeletonFiles] = useState<File[]>([]);
+  const [skeletonFile, setSkeletonFile] = useState<File | null>(null);
   const [atlasFile, setAtlasFile] = useState<File | null>(null);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
-  const [gridJsonFile, setGridJsonFile] = useState<File | null>(null);
+  const [gridSkeletonFiles, setGridSkeletonFiles] = useState<File[]>([]);
+  const [gridSkeletonFile, setGridSkeletonFile] = useState<File | null>(null);
   const [gridAtlasFile, setGridAtlasFile] = useState<File | null>(null);
   const [gridImageFiles, setGridImageFiles] = useState<File[]>([]);
-  const [boardJsonFile, setBoardJsonFile] = useState<File | null>(null);
+  const [boardSkeletonFiles, setBoardSkeletonFiles] = useState<File[]>([]);
+  const [boardSkeletonFile, setBoardSkeletonFile] = useState<File | null>(
+    null
+  );
   const [boardAtlasFile, setBoardAtlasFile] = useState<File | null>(null);
   const [boardImageFiles, setBoardImageFiles] = useState<File[]>([]);
   const [boardError, setBoardError] = useState<string | null>(null);
@@ -268,7 +307,8 @@ function App() {
     }
     lastGridSignatureRef.current = "";
     if (resetFiles) {
-      setGridJsonFile(null);
+      setGridSkeletonFiles([]);
+      setGridSkeletonFile(null);
       setGridAtlasFile(null);
       setGridImageFiles([]);
       if (gridFileInputRef.current) {
@@ -897,7 +937,7 @@ function App() {
   };
 
   const createSpineFromFiles = async (
-    files: { json: File; atlas: File; images: File[] },
+    files: SpineSourceFiles,
     assetPrefix: string
   ) => {
     if (!assetsReadyRef.current) {
@@ -936,9 +976,9 @@ function App() {
     }
 
     const urlsToRevoke: string[] = [];
-    const jsonUrl = URL.createObjectURL(files.json);
+    const skeletonUrl = URL.createObjectURL(files.skeleton);
     const atlasUrl = URL.createObjectURL(files.atlas);
-    urlsToRevoke.push(jsonUrl, atlasUrl);
+    urlsToRevoke.push(skeletonUrl, atlasUrl);
 
     const assetId = `${assetPrefix}-${Date.now()}-${Math.random()
       .toString(16)
@@ -947,7 +987,11 @@ function App() {
     const atlasKey = `spine-atlas-${assetId}`;
 
     try {
-      Assets.add({ alias: skeletonKey, src: jsonUrl, loadParser: "json" });
+      Assets.add({
+        alias: skeletonKey,
+        src: skeletonUrl,
+        loadParser: getSkeletonLoadParser(files.skeleton),
+      });
       Assets.add({
         alias: atlasKey,
         src: atlasUrl,
@@ -975,29 +1019,40 @@ function App() {
     }
   };
 
-  const parseSelectedFiles = (files: FileList | null) => {
+  const parseSelectedFiles = (files: FileList | null): ParsedSelectedFiles => {
     if (!files) {
-      return { json: null, atlas: null, images: [] as File[] };
+      return {
+        skeleton: null,
+        skeletons: [],
+        atlas: null,
+        images: [] as File[],
+      };
     }
-    let json: File | null = null;
+    const skeletons: File[] = [];
     let atlas: File | null = null;
     const images: File[] = [];
     Array.from(files).forEach((file) => {
       const name = file.name.toLowerCase();
-      if (name.endsWith(".json") && !json) {
-        json = file;
+      if (isSkeletonFileName(name)) {
+        skeletons.push(file);
       } else if (name.endsWith(".atlas") && !atlas) {
         atlas = file;
-      } else if (name.endsWith(".png")) {
+      } else if (isAtlasImageFileName(name)) {
         images.push(file);
       }
     });
-    return { json, atlas, images };
+    skeletons.sort(compareFilesByName);
+    return {
+      skeleton: skeletons[0] ?? null,
+      skeletons,
+      atlas,
+      images,
+    };
   };
 
   const handleSingleLoad = async () => {
-    if (!jsonFile || !atlasFile || imageFiles.length === 0) {
-      setError("Select the .json, .atlas, and at least one .png file.");
+    if (!skeletonFile || !atlasFile || imageFiles.length === 0) {
+      setError(fileSelectionError);
       return;
     }
 
@@ -1017,7 +1072,7 @@ function App() {
       }
 
       const result = await createSpineFromFiles(
-        { json: jsonFile, atlas: atlasFile, images: imageFiles },
+        { skeleton: skeletonFile, atlas: atlasFile, images: imageFiles },
         "single"
       );
 
@@ -1078,7 +1133,7 @@ function App() {
 
   const loadGridSlot = async (
     slotId: string,
-    files: { json: File; atlas: File; images: File[] },
+    files: SpineSourceFiles,
     scaleOverride?: number
   ) => {
     const slotSnapshot = gridSlotsRef.current.find(
@@ -1175,10 +1230,10 @@ function App() {
     if (!activeSlot) {
       return;
     }
-    if (!gridJsonFile || !gridAtlasFile || gridImageFiles.length === 0) {
+    if (!gridSkeletonFile || !gridAtlasFile || gridImageFiles.length === 0) {
       updateGridSlot(activeSlot.id, (slot) => ({
         ...slot,
-        error: "Select the .json, .atlas, and at least one .png file.",
+        error: fileSelectionError,
       }));
       return;
     }
@@ -1188,7 +1243,7 @@ function App() {
     await loadGridSlot(
       activeSlot.id,
       {
-        json: gridJsonFile,
+        skeleton: gridSkeletonFile,
         atlas: gridAtlasFile,
         images: gridImageFiles,
       },
@@ -1198,11 +1253,11 @@ function App() {
   };
 
   const handleGridFillEmpty = async () => {
-    if (!gridJsonFile || !gridAtlasFile || gridImageFiles.length === 0) {
+    if (!gridSkeletonFile || !gridAtlasFile || gridImageFiles.length === 0) {
       if (activeSlotId) {
         updateGridSlot(activeSlotId, (slot) => ({
           ...slot,
-          error: "Select the .json, .atlas, and at least one .png file.",
+          error: fileSelectionError,
         }));
       }
       return;
@@ -1221,7 +1276,7 @@ function App() {
       await loadGridSlot(
         slot.id,
         {
-          json: gridJsonFile,
+          skeleton: gridSkeletonFile,
           atlas: gridAtlasFile,
           images: gridImageFiles,
         },
@@ -1253,7 +1308,8 @@ function App() {
       });
       boardSpineRef.current = null;
     }
-    setBoardJsonFile(null);
+    setBoardSkeletonFiles([]);
+    setBoardSkeletonFile(null);
     setBoardAtlasFile(null);
     setBoardImageFiles([]);
     setBoardError(null);
@@ -1266,8 +1322,8 @@ function App() {
   };
 
   const handleBoardLoad = async () => {
-    if (!boardJsonFile || !boardAtlasFile || boardImageFiles.length === 0) {
-      setBoardError("Select the .json, .atlas, and at least one .png file.");
+    if (!boardSkeletonFile || !boardAtlasFile || boardImageFiles.length === 0) {
+      setBoardError(fileSelectionError);
       return;
     }
 
@@ -1290,7 +1346,11 @@ function App() {
       }
 
       const result = await createSpineFromFiles(
-        { json: boardJsonFile, atlas: boardAtlasFile, images: boardImageFiles },
+        {
+          skeleton: boardSkeletonFile,
+          atlas: boardAtlasFile,
+          images: boardImageFiles,
+        },
         "board"
       );
 
@@ -1314,12 +1374,12 @@ function App() {
     if (viewMode !== "single" || isLoading) {
       return;
     }
-    if (!jsonFile || !atlasFile || imageFiles.length === 0) {
+    if (!skeletonFile || !atlasFile || imageFiles.length === 0) {
       return;
     }
     const signature = [
-      jsonFile.name,
-      jsonFile.lastModified,
+      skeletonFile.name,
+      skeletonFile.lastModified,
       atlasFile.name,
       atlasFile.lastModified,
       ...imageFiles.map(
@@ -1331,19 +1391,19 @@ function App() {
     }
     lastSingleSignatureRef.current = signature;
     handleSingleLoad();
-  }, [viewMode, isLoading, jsonFile, atlasFile, imageFiles]);
+  }, [viewMode, isLoading, skeletonFile, atlasFile, imageFiles]);
 
   useEffect(() => {
     if (viewMode !== "grid" || isLoading) {
       return;
     }
-    if (!gridJsonFile || !gridAtlasFile || gridImageFiles.length === 0) {
+    if (!gridSkeletonFile || !gridAtlasFile || gridImageFiles.length === 0) {
       return;
     }
     const signature = [
       activeSlotId,
-      gridJsonFile.name,
-      gridJsonFile.lastModified,
+      gridSkeletonFile.name,
+      gridSkeletonFile.lastModified,
       gridAtlasFile.name,
       gridAtlasFile.lastModified,
       ...gridImageFiles.map(
@@ -1359,7 +1419,7 @@ function App() {
     viewMode,
     isLoading,
     activeSlotId,
-    gridJsonFile,
+    gridSkeletonFile,
     gridAtlasFile,
     gridImageFiles,
   ]);
@@ -1368,12 +1428,12 @@ function App() {
     if (viewMode !== "grid" || isLoading) {
       return;
     }
-    if (!boardJsonFile || !boardAtlasFile || boardImageFiles.length === 0) {
+    if (!boardSkeletonFile || !boardAtlasFile || boardImageFiles.length === 0) {
       return;
     }
     const signature = [
-      boardJsonFile.name,
-      boardJsonFile.lastModified,
+      boardSkeletonFile.name,
+      boardSkeletonFile.lastModified,
       boardAtlasFile.name,
       boardAtlasFile.lastModified,
       ...boardImageFiles.map(
@@ -1385,7 +1445,13 @@ function App() {
     }
     lastBoardSignatureRef.current = signature;
     handleBoardLoad();
-  }, [viewMode, isLoading, boardJsonFile, boardAtlasFile, boardImageFiles]);
+  }, [
+    viewMode,
+    isLoading,
+    boardSkeletonFile,
+    boardAtlasFile,
+    boardImageFiles,
+  ]);
 
   const activeSlot = getActiveSlot();
   const activeStatus =
@@ -1401,8 +1467,9 @@ function App() {
           <p className="eyebrow">Spine Viewer</p>
           <h1>Realtime rig preview</h1>
           <p className="subtitle">
-            Load a Spine JSON, atlas, and PNG pages to preview the skeleton,
-            scale it live, and play any available animation.
+            Load a Spine skeleton (.json or .skel), atlas, and image pages to
+            preview the skeleton, scale it live, and play any available
+            animation.
           </p>
         </div>
 
@@ -1428,32 +1495,56 @@ function App() {
           {viewMode === "single" ? (
             <>
               <label className="field">
-                <span>Quick Load (JSON + Atlas + PNGs)</span>
+                <span>Quick Load (JSON/SKEL + Atlas + Images)</span>
                 <input
                   type="file"
-                  accept=".json,.atlas,.png"
+                  accept={skeletonInputAccept}
                   multiple
                   onChange={(event) => {
                     const parsed = parseSelectedFiles(event.target.files);
-                    setJsonFile(parsed.json);
+                    setSingleSkeletonFiles(parsed.skeletons);
+                    setSkeletonFile(parsed.skeleton);
                     setAtlasFile(parsed.atlas);
                     setImageFiles(parsed.images);
                   }}
                 />
                 <em>
-                  {jsonFile || atlasFile || imageFiles.length > 0
+                  {skeletonFile || atlasFile || imageFiles.length > 0
                     ? [
-                        jsonFile?.name,
+                        skeletonFile?.name,
                         atlasFile?.name,
                         ...imageFiles.map((file) => file.name),
                       ]
                         .filter(Boolean)
                         .join(", ")
-                    : "Pick JSON, atlas, and PNG pages together"}
+                    : quickLoadEmptyState}
                 </em>
               </label>
+              {singleSkeletonFiles.length > 1 ? (
+                <label className="field">
+                  <span>Skeleton</span>
+                  <select
+                    value={skeletonFile ? getFileToken(skeletonFile) : ""}
+                    onChange={(event) => {
+                      setSkeletonFile(
+                        singleSkeletonFiles.find(
+                          (file) => getFileToken(file) === event.target.value
+                        ) ?? null
+                      );
+                    }}
+                    disabled={isLoading}
+                  >
+                    {singleSkeletonFiles.map((file) => (
+                      <option key={getFileToken(file)} value={getFileToken(file)}>
+                        {file.name}
+                      </option>
+                    ))}
+                  </select>
+                  <em>Switch between skeleton files that share this atlas.</em>
+                </label>
+              ) : null}
               <p className="hint">
-                PNG filenames must match the atlas page names.
+                Image filenames must match the atlas page names.
               </p>
               <div className="button-row">
                 <button
@@ -1468,41 +1559,68 @@ function App() {
           ) : (
             <>
               <label className="field">
-                <span>Quick Load (JSON + Atlas + PNGs)</span>
+                <span>Quick Load (JSON/SKEL + Atlas + Images)</span>
                 <input
                   type="file"
-                  accept=".json,.atlas,.png"
+                  accept={skeletonInputAccept}
                   multiple
                   ref={gridFileInputRef}
                   onChange={(event) => {
                     const parsed = parseSelectedFiles(event.target.files);
-                    setGridJsonFile(parsed.json);
+                    setGridSkeletonFiles(parsed.skeletons);
+                    setGridSkeletonFile(parsed.skeleton);
                     setGridAtlasFile(parsed.atlas);
                     setGridImageFiles(parsed.images);
                   }}
                 />
                 <em>
-                  {gridJsonFile || gridAtlasFile || gridImageFiles.length > 0
+                  {gridSkeletonFile ||
+                  gridAtlasFile ||
+                  gridImageFiles.length > 0
                     ? [
-                        gridJsonFile?.name,
+                        gridSkeletonFile?.name,
                         gridAtlasFile?.name,
                         ...gridImageFiles.map((file) => file.name),
                       ]
                         .filter(Boolean)
                         .join(", ")
-                    : "Pick JSON, atlas, and PNG pages together"}
+                    : quickLoadEmptyState}
                 </em>
               </label>
+              {gridSkeletonFiles.length > 1 ? (
+                <label className="field">
+                  <span>Symbol skeleton</span>
+                  <select
+                    value={gridSkeletonFile ? getFileToken(gridSkeletonFile) : ""}
+                    onChange={(event) => {
+                      setGridSkeletonFile(
+                        gridSkeletonFiles.find(
+                          (file) => getFileToken(file) === event.target.value
+                        ) ?? null
+                      );
+                    }}
+                    disabled={isLoading}
+                  >
+                    {gridSkeletonFiles.map((file) => (
+                      <option key={getFileToken(file)} value={getFileToken(file)}>
+                        {file.name}
+                      </option>
+                    ))}
+                  </select>
+                  <em>Choose which symbol skeleton to load into the grid.</em>
+                </label>
+              ) : null}
               <label className="field">
                 <span>Gameboard spine</span>
                 <input
                   type="file"
-                  accept=".json,.atlas,.png"
+                  accept={skeletonInputAccept}
                   multiple
                   ref={boardFileInputRef}
                   onChange={(event) => {
                     const parsed = parseSelectedFiles(event.target.files);
-                    setBoardJsonFile(parsed.json);
+                    setBoardSkeletonFiles(parsed.skeletons);
+                    setBoardSkeletonFile(parsed.skeleton);
                     setBoardAtlasFile(parsed.atlas);
                     setBoardImageFiles(parsed.images);
                   }}
@@ -1521,15 +1639,17 @@ function App() {
                     className="ghost"
                     type="button"
                     onClick={handleBoardClear}
-                    disabled={!isBoardLoaded && !boardJsonFile}
+                    disabled={!isBoardLoaded && !boardSkeletonFile}
                   >
                     Clear gameboard
                   </button>
                 </div>
                 <em>
-                  {boardJsonFile || boardAtlasFile || boardImageFiles.length > 0
+                  {boardSkeletonFile ||
+                  boardAtlasFile ||
+                  boardImageFiles.length > 0
                     ? [
-                        boardJsonFile?.name,
+                        boardSkeletonFile?.name,
                         boardAtlasFile?.name,
                         ...boardImageFiles.map((file) => file.name),
                       ]
@@ -1539,6 +1659,29 @@ function App() {
                 </em>
                 {boardError ? <p className="hint">{boardError}</p> : null}
               </label>
+              {boardSkeletonFiles.length > 1 ? (
+                <label className="field">
+                  <span>Board skeleton</span>
+                  <select
+                    value={boardSkeletonFile ? getFileToken(boardSkeletonFile) : ""}
+                    onChange={(event) => {
+                      setBoardSkeletonFile(
+                        boardSkeletonFiles.find(
+                          (file) => getFileToken(file) === event.target.value
+                        ) ?? null
+                      );
+                    }}
+                    disabled={isLoading}
+                  >
+                    {boardSkeletonFiles.map((file) => (
+                      <option key={getFileToken(file)} value={getFileToken(file)}>
+                        {file.name}
+                      </option>
+                    ))}
+                  </select>
+                  <em>Choose which board skeleton to render.</em>
+                </label>
+              ) : null}
               <label className="field">
                 <span>Symbol Slot</span>
                 <select
@@ -1558,7 +1701,7 @@ function App() {
                 </em>
               </label>
               <p className="hint">
-                PNG filenames must match the atlas page names.
+                Image filenames must match the atlas page names.
               </p>
               <div className="button-row">
                 <button
