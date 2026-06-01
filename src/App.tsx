@@ -46,6 +46,8 @@ type GridSlot = {
   error: string | null;
 };
 
+type Theme = "light" | "dark";
+
 const defaultGridRows = 5;
 const defaultGridCols = 5;
 const minGridSize = 4;
@@ -55,6 +57,20 @@ const fileSelectionError =
   "Select a skeleton (.json or .skel), a .atlas, and at least one image file (.png or .webp).";
 const quickLoadEmptyState =
   "Pick one or more skeletons (.json or .skel), an atlas, and image pages together";
+const themeStorageKey = "spine-viewer-theme";
+
+const getInitialTheme = (): Theme => {
+  if (typeof window === "undefined") {
+    return "light";
+  }
+  const storedTheme = window.localStorage.getItem(themeStorageKey);
+  if (storedTheme === "light" || storedTheme === "dark") {
+    return storedTheme;
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+};
 
 const isSkeletonFileName = (name: string) =>
   name.endsWith(".json") || name.endsWith(".skel");
@@ -166,6 +182,7 @@ function App() {
   };
 
   const [viewMode, setViewMode] = useState<"single" | "grid">("single");
+  const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
   const [singleSkeletonFiles, setSingleSkeletonFiles] = useState<File[]>([]);
   const [skeletonFile, setSkeletonFile] = useState<File | null>(null);
   const [atlasFile, setAtlasFile] = useState<File | null>(null);
@@ -210,6 +227,7 @@ function App() {
   const [status, setStatus] = useState("Drop files to get started.");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const themeRef = useRef<Theme>(theme);
   const gridSlotsRef = useRef<GridSlot[]>(gridSlots);
   const lastSingleSignatureRef = useRef("");
   const lastGridSignatureRef = useRef("");
@@ -218,6 +236,17 @@ function App() {
   useEffect(() => {
     gridSlotsRef.current = gridSlots;
   }, [gridSlots]);
+
+  useEffect(() => {
+    themeRef.current = theme;
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    root.style.colorScheme = theme;
+    window.localStorage.setItem(themeStorageKey, theme);
+    if (viewModeRef.current === "grid") {
+      drawGridGuide();
+    }
+  }, [theme]);
 
   useEffect(() => {
     viewModeRef.current = viewMode;
@@ -384,6 +413,31 @@ function App() {
     gridOutlinesRef.current.forEach((outline) => outline.clear());
   };
 
+  const getGridGuidePalette = () =>
+    themeRef.current === "dark"
+      ? {
+          shadowColor: 0x0b0f14,
+          shadowAlpha: 0.55,
+          fillColor: 0x16212a,
+          fillAlpha: 0.95,
+          strokeColor: 0x77d1be,
+          strokeAlpha: 0.22,
+          hoverColor: 0xff8e63,
+          hoverFillAlpha: 0.18,
+          hoverStrokeAlpha: 0.55,
+        }
+      : {
+          shadowColor: 0x15121c,
+          shadowAlpha: 0.55,
+          fillColor: 0x2a2233,
+          fillAlpha: 1,
+          strokeColor: 0x2f241e,
+          strokeAlpha: 0.35,
+          hoverColor: 0xff7a4a,
+          hoverFillAlpha: 0.12,
+          hoverStrokeAlpha: 0.35,
+        };
+
   const layoutGridSpines = () => {
     const app = appRef.current;
     const container = containerRef.current;
@@ -449,6 +503,7 @@ function App() {
     const cellDrawWidth = cellWidth;
     const cellDrawHeight = cellHeight;
     const cellOffset = 0;
+    const palette = getGridGuidePalette();
     guide.clear();
     for (let row = 0; row < gridRows; row += 1) {
       for (let col = 0; col < gridCols; col += 1) {
@@ -462,15 +517,19 @@ function App() {
             cellDrawHeight,
             gridCellRadius
           )
-          .fill({ color: 0x15121c, alpha: 0.55 });
+          .fill({ color: palette.shadowColor, alpha: palette.shadowAlpha });
         guide
           .roundRect(x, y, cellDrawWidth, cellDrawHeight, gridCellRadius)
-          .fill({ color: 0x2a2233, alpha: 1 });
+          .fill({ color: palette.fillColor, alpha: palette.fillAlpha });
       }
     }
     guide
       .rect(gridLeft, gridTop, gridWidth, gridHeight)
-      .stroke({ width: 1, color: 0x2f241e, alpha: 0.35 });
+      .stroke({
+        width: 1,
+        color: palette.strokeColor,
+        alpha: palette.strokeAlpha,
+      });
     guide.hitArea = new Rectangle(gridLeft, gridTop, gridWidth, gridHeight);
   };
 
@@ -493,12 +552,17 @@ function App() {
     const cellDrawWidth = cellWidth;
     const cellDrawHeight = cellHeight;
     const cellOffset = 0;
+    const palette = getGridGuidePalette();
     const x = gridLeft + col * cellStepX + cellOffset;
     const y = gridTop + row * cellStepY + cellOffset;
     hover
       .roundRect(x, y, cellDrawWidth, cellDrawHeight, gridCellRadius)
-      .fill({ color: 0xff7a4a, alpha: 0.12 })
-      .stroke({ width: 1, color: 0xff7a4a, alpha: 0.35 });
+      .fill({ color: palette.hoverColor, alpha: palette.hoverFillAlpha })
+      .stroke({
+        width: 1,
+        color: palette.hoverColor,
+        alpha: palette.hoverStrokeAlpha,
+      });
   };
 
   const setGridLoopingForAll = (nextLoop: boolean) => {
@@ -829,7 +893,7 @@ function App() {
     }
     if (!selectedAnimation) {
       spine.state.clearTrack(0);
-      spine.skeleton.setToSetupPose();
+      spine.skeleton.setupPose();
       centerSingleSpine(spine);
       return;
     }
@@ -842,8 +906,8 @@ function App() {
     if (!spine || !selectedSkin) {
       return;
     }
-    spine.skeleton.setSkinByName(selectedSkin);
-    spine.skeleton.setSlotsToSetupPose();
+    spine.skeleton.setSkin(selectedSkin);
+    spine.skeleton.setupPoseSlots();
     spine.state.apply(spine.skeleton);
   }, [selectedSkin]);
 
@@ -911,7 +975,7 @@ function App() {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
 
-    const attachment = slot.getAttachment();
+    const attachment = slot.appliedPose.getAttachment();
     if (
       attachment &&
       "width" in attachment &&
@@ -962,16 +1026,14 @@ function App() {
         throw new Error(`Missing atlas pages: ${missing.join(", ")}`);
       }
       const images: Record<string, TextureSource> = {};
-      await Promise.all(
-        pageNames.map(async (name) => {
-          const file = imageMap.get(name);
-          if (!file) {
-            return;
-          }
-          const bitmap = await createImageBitmap(file);
-          images[name] = TextureSource.from(bitmap);
-        })
-      );
+      for (const name of pageNames) {
+        const file = imageMap.get(name);
+        if (!file) {
+          continue;
+        }
+        const bitmap = await createImageBitmap(file);
+        images[name] = TextureSource.from(bitmap);
+      }
       imagesMetadata = images;
     }
 
@@ -990,12 +1052,12 @@ function App() {
       Assets.add({
         alias: skeletonKey,
         src: skeletonUrl,
-        loadParser: getSkeletonLoadParser(files.skeleton),
+        parser: getSkeletonLoadParser(files.skeleton),
       });
       Assets.add({
         alias: atlasKey,
         src: atlasUrl,
-        loadParser: "spineTextureAtlasLoader",
+        parser: "spineTextureAtlasLoader",
         data: { images: imagesMetadata },
       });
       await Assets.load([skeletonKey, atlasKey]);
@@ -1109,8 +1171,8 @@ function App() {
       const initialSkin = skinNames[0] || "";
       setSelectedSkin(initialSkin);
       if (initialSkin) {
-        result.spine.skeleton.setSkinByName(initialSkin);
-        result.spine.skeleton.setSlotsToSetupPose();
+        result.spine.skeleton.setSkin(initialSkin);
+        result.spine.skeleton.setupPoseSlots();
       }
       result.spine.state.timeScale = isPlaying ? 1 : 0;
 
@@ -1190,8 +1252,8 @@ function App() {
       const initialAnimation = animationNames[0] || "";
       const initialSkin = skinNames[0] || "";
       if (initialSkin) {
-        result.spine.skeleton.setSkinByName(initialSkin);
-        result.spine.skeleton.setSlotsToSetupPose();
+        result.spine.skeleton.setSkin(initialSkin);
+        result.spine.skeleton.setupPoseSlots();
       }
       if (initialAnimation) {
         result.spine.state.setAnimation(
@@ -1464,7 +1526,32 @@ function App() {
     <div className="app">
       <aside className="panel">
         <div className="panel-header">
-          <p className="eyebrow">Spine Viewer</p>
+          <div className="panel-header-top">
+            <p className="eyebrow">Spine Viewer</p>
+            <button
+              type="button"
+              className="theme-toggle"
+              aria-pressed={theme === "dark"}
+              aria-label={
+                theme === "dark"
+                  ? "Switch to light theme"
+                  : "Switch to dark theme"
+              }
+              onClick={() =>
+                setTheme((prev) => (prev === "dark" ? "light" : "dark"))
+              }
+            >
+              <span className="theme-toggle-label">Dark mode</span>
+              <span
+                className={`theme-toggle-track ${
+                  theme === "dark" ? "active" : ""
+                }`}
+                aria-hidden="true"
+              >
+                <span className="theme-toggle-thumb" />
+              </span>
+            </button>
+          </div>
           <h1>Realtime rig preview</h1>
           <p className="subtitle">
             Load a Spine skeleton (.json or .skel), atlas, and image pages to
@@ -2099,8 +2186,8 @@ function App() {
                   }));
                   const spine = gridSpinesRef.current.get(activeSlot.id);
                   if (spine && nextSkin) {
-                    spine.skeleton.setSkinByName(nextSkin);
-                    spine.skeleton.setSlotsToSetupPose();
+                    spine.skeleton.setSkin(nextSkin);
+                    spine.skeleton.setupPoseSlots();
                     spine.state.apply(spine.skeleton);
                     layoutGridSpines();
                   }
