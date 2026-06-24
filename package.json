@@ -12,7 +12,7 @@
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "@esotericsoftware/spine-pixi-v8": "~4.3.5",
+    "@esotericsoftware/spine-pixi-v8": "4.2.96",
     "pixi.js": "^8.16.0"
   },
   "devDependencies": {
