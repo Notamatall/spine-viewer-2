@@ -79,9 +79,7 @@ const isAtlasImageFileName = (name: string) =>
   name.endsWith(".png") || name.endsWith(".webp");
 
 const getSkeletonLoadParser = (file: File) =>
-  file.name.toLowerCase().endsWith(".skel")
-    ? "spineSkeletonLoader"
-    : "json";
+  file.name.toLowerCase().endsWith(".skel") ? "spineSkeletonLoader" : "json";
 
 const compareFilesByName = (a: File, b: File) => a.name.localeCompare(b.name);
 
@@ -192,9 +190,7 @@ function App() {
   const [gridAtlasFile, setGridAtlasFile] = useState<File | null>(null);
   const [gridImageFiles, setGridImageFiles] = useState<File[]>([]);
   const [boardSkeletonFiles, setBoardSkeletonFiles] = useState<File[]>([]);
-  const [boardSkeletonFile, setBoardSkeletonFile] = useState<File | null>(
-    null
-  );
+  const [boardSkeletonFile, setBoardSkeletonFile] = useState<File | null>(null);
   const [boardAtlasFile, setBoardAtlasFile] = useState<File | null>(null);
   const [boardImageFiles, setBoardImageFiles] = useState<File[]>([]);
   const [boardError, setBoardError] = useState<string | null>(null);
@@ -221,7 +217,7 @@ function App() {
   const [slotImageFile, setSlotImageFile] = useState<File | null>(null);
   const [slotImageError, setSlotImageError] = useState<string | null>(null);
   const [gridSlots, setGridSlots] = useState<GridSlot[]>(() =>
-    createGridSlots(gridRows, gridCols)
+    createGridSlots(gridRows, gridCols),
   );
   const [activeSlotId, setActiveSlotId] = useState("slot-0-0");
   const [status, setStatus] = useState("Drop files to get started.");
@@ -475,7 +471,7 @@ function App() {
     spine.pivot.set(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
     spine.position.set(
       metrics.gridLeft + metrics.gridWidth / 2,
-      metrics.gridTop + metrics.gridHeight / 2
+      metrics.gridTop + metrics.gridHeight / 2,
     );
     spine.scale.set(gridBoardScale);
   };
@@ -515,7 +511,7 @@ function App() {
             y + 4,
             cellDrawWidth,
             cellDrawHeight,
-            gridCellRadius
+            gridCellRadius,
           )
           .fill({ color: palette.shadowColor, alpha: palette.shadowAlpha });
         guide
@@ -523,13 +519,11 @@ function App() {
           .fill({ color: palette.fillColor, alpha: palette.fillAlpha });
       }
     }
-    guide
-      .rect(gridLeft, gridTop, gridWidth, gridHeight)
-      .stroke({
-        width: 1,
-        color: palette.strokeColor,
-        alpha: palette.strokeAlpha,
-      });
+    guide.rect(gridLeft, gridTop, gridWidth, gridHeight).stroke({
+      width: 1,
+      color: palette.strokeColor,
+      alpha: palette.strokeAlpha,
+    });
     guide.hitArea = new Rectangle(gridLeft, gridTop, gridWidth, gridHeight);
   };
 
@@ -570,7 +564,7 @@ function App() {
       prev.map((slot) => ({
         ...slot,
         isLooping: nextLoop,
-      }))
+      })),
     );
     gridSpinesRef.current.forEach((spine, slotId) => {
       const slot = gridSlotsRef.current.find((item) => item.id === slotId);
@@ -705,7 +699,7 @@ function App() {
         app.renderer.events.mapPositionToPoint(
           point,
           event.clientX,
-          event.clientY
+          event.clientY,
         );
         const {
           gridLeft,
@@ -750,7 +744,7 @@ function App() {
         app.renderer.events.mapPositionToPoint(
           point,
           event.clientX,
-          event.clientY
+          event.clientY,
         );
         const {
           gridLeft,
@@ -811,7 +805,7 @@ function App() {
           if (singleSpineRef.current && singleOutlineRef.current) {
             updateBoundsOutline(
               singleSpineRef.current,
-              singleOutlineRef.current
+              singleOutlineRef.current,
             );
           }
         } else {
@@ -893,7 +887,7 @@ function App() {
     }
     if (!selectedAnimation) {
       spine.state.clearTrack(0);
-      spine.skeleton.setupPose();
+      spine.skeleton.setToSetupPose();
       centerSingleSpine(spine);
       return;
     }
@@ -906,8 +900,8 @@ function App() {
     if (!spine || !selectedSkin) {
       return;
     }
-    spine.skeleton.setSkin(selectedSkin);
-    spine.skeleton.setupPoseSlots();
+    spine.skeleton.setSkinByName(selectedSkin);
+    spine.skeleton.setSlotsToSetupPose();
     spine.state.apply(spine.skeleton);
   }, [selectedSkin]);
 
@@ -925,10 +919,10 @@ function App() {
 
   const updateGridSlot = (
     slotId: string,
-    updater: (slot: GridSlot) => GridSlot
+    updater: (slot: GridSlot) => GridSlot,
   ) => {
     setGridSlots((prev) =>
-      prev.map((slot) => (slot.id === slotId ? updater(slot) : slot))
+      prev.map((slot) => (slot.id === slotId ? updater(slot) : slot)),
     );
   };
 
@@ -975,7 +969,7 @@ function App() {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
 
-    const attachment = slot.appliedPose.getAttachment();
+    const attachment = slot.getAttachment();
     if (
       attachment &&
       "width" in attachment &&
@@ -1002,7 +996,7 @@ function App() {
 
   const createSpineFromFiles = async (
     files: SpineSourceFiles,
-    assetPrefix: string
+    assetPrefix: string,
   ) => {
     if (!assetsReadyRef.current) {
       await Assets.init();
@@ -1072,7 +1066,7 @@ function App() {
         spine,
         assets: { keys: [skeletonKey, atlasKey], urls: urlsToRevoke },
         animationNames: spine.skeleton.data.animations.map(
-          (animation) => animation.name
+          (animation) => animation.name,
         ),
       };
     } catch (loadError) {
@@ -1135,7 +1129,7 @@ function App() {
 
       const result = await createSpineFromFiles(
         { skeleton: skeletonFile, atlas: atlasFile, images: imageFiles },
-        "single"
+        "single",
       );
 
       const app = appRef.current;
@@ -1163,7 +1157,7 @@ function App() {
 
       const animationNames = result.animationNames;
       const skinNames = result.spine.skeleton.data.skins.map(
-        (skin) => skin.name
+        (skin) => skin.name,
       );
       setAnimations(animationNames);
       setSkins(skinNames);
@@ -1171,8 +1165,8 @@ function App() {
       const initialSkin = skinNames[0] || "";
       setSelectedSkin(initialSkin);
       if (initialSkin) {
-        result.spine.skeleton.setSkin(initialSkin);
-        result.spine.skeleton.setupPoseSlots();
+        result.spine.skeleton.setSkinByName(initialSkin);
+        result.spine.skeleton.setSlotsToSetupPose();
       }
       result.spine.state.timeScale = isPlaying ? 1 : 0;
 
@@ -1180,7 +1174,7 @@ function App() {
       setStatus(
         animationNames.length > 0
           ? "Spine loaded. Pick an animation to play."
-          : "Spine loaded. No animations found."
+          : "Spine loaded. No animations found.",
       );
       syncStageForMode();
     } catch (err) {
@@ -1196,10 +1190,10 @@ function App() {
   const loadGridSlot = async (
     slotId: string,
     files: SpineSourceFiles,
-    scaleOverride?: number
+    scaleOverride?: number,
   ) => {
     const slotSnapshot = gridSlotsRef.current.find(
-      (slot) => slot.id === slotId
+      (slot) => slot.id === slotId,
     );
     if (!slotSnapshot) {
       return;
@@ -1247,19 +1241,19 @@ function App() {
 
       const animationNames = result.animationNames;
       const skinNames = result.spine.skeleton.data.skins.map(
-        (skin) => skin.name
+        (skin) => skin.name,
       );
       const initialAnimation = animationNames[0] || "";
       const initialSkin = skinNames[0] || "";
       if (initialSkin) {
-        result.spine.skeleton.setSkin(initialSkin);
-        result.spine.skeleton.setupPoseSlots();
+        result.spine.skeleton.setSkinByName(initialSkin);
+        result.spine.skeleton.setSlotsToSetupPose();
       }
       if (initialAnimation) {
         result.spine.state.setAnimation(
           0,
           initialAnimation,
-          slotSnapshot.isLooping
+          slotSnapshot.isLooping,
         );
       }
       result.spine.state.timeScale = slotSnapshot.isPlaying ? 1 : 0;
@@ -1309,7 +1303,7 @@ function App() {
         atlas: gridAtlasFile,
         images: gridImageFiles,
       },
-      slotScale
+      slotScale,
     );
     setIsLoading(false);
   };
@@ -1324,7 +1318,7 @@ function App() {
       }
       return;
     }
-    const fillScale = multiScale ? gridScale : activeSlot?.scale ?? 1;
+    const fillScale = multiScale ? gridScale : (activeSlot?.scale ?? 1);
     const emptySlots = gridSlots.filter((slot) => !slot.hasSpine);
     if (emptySlots.length === 0) {
       return;
@@ -1342,7 +1336,7 @@ function App() {
           atlas: gridAtlasFile,
           images: gridImageFiles,
         },
-        fillScale
+        fillScale,
       );
     }
     setIsLoading(false);
@@ -1413,7 +1407,7 @@ function App() {
           atlas: boardAtlasFile,
           images: boardImageFiles,
         },
-        "board"
+        "board",
       );
 
       result.spine.zIndex = 1;
@@ -1445,7 +1439,7 @@ function App() {
       atlasFile.name,
       atlasFile.lastModified,
       ...imageFiles.map(
-        (file) => `${file.name}-${file.lastModified}-${file.size}`
+        (file) => `${file.name}-${file.lastModified}-${file.size}`,
       ),
     ].join("|");
     if (signature === lastSingleSignatureRef.current) {
@@ -1469,7 +1463,7 @@ function App() {
       gridAtlasFile.name,
       gridAtlasFile.lastModified,
       ...gridImageFiles.map(
-        (file) => `${file.name}-${file.lastModified}-${file.size}`
+        (file) => `${file.name}-${file.lastModified}-${file.size}`,
       ),
     ].join("|");
     if (signature === lastGridSignatureRef.current) {
@@ -1499,7 +1493,7 @@ function App() {
       boardAtlasFile.name,
       boardAtlasFile.lastModified,
       ...boardImageFiles.map(
-        (file) => `${file.name}-${file.lastModified}-${file.size}`
+        (file) => `${file.name}-${file.lastModified}-${file.size}`,
       ),
     ].join("|");
     if (signature === lastBoardSignatureRef.current) {
@@ -1507,20 +1501,15 @@ function App() {
     }
     lastBoardSignatureRef.current = signature;
     handleBoardLoad();
-  }, [
-    viewMode,
-    isLoading,
-    boardSkeletonFile,
-    boardAtlasFile,
-    boardImageFiles,
-  ]);
+  }, [viewMode, isLoading, boardSkeletonFile, boardAtlasFile, boardImageFiles]);
 
   const activeSlot = getActiveSlot();
   const activeStatus =
     viewMode === "single"
       ? status
-      : activeSlot?.status ?? "Select a slot to load.";
-  const activeError = viewMode === "single" ? error : activeSlot?.error ?? null;
+      : (activeSlot?.status ?? "Select a slot to load.");
+  const activeError =
+    viewMode === "single" ? error : (activeSlot?.error ?? null);
 
   return (
     <div className="app">
@@ -1615,14 +1604,17 @@ function App() {
                     onChange={(event) => {
                       setSkeletonFile(
                         singleSkeletonFiles.find(
-                          (file) => getFileToken(file) === event.target.value
-                        ) ?? null
+                          (file) => getFileToken(file) === event.target.value,
+                        ) ?? null,
                       );
                     }}
                     disabled={isLoading}
                   >
                     {singleSkeletonFiles.map((file) => (
-                      <option key={getFileToken(file)} value={getFileToken(file)}>
+                      <option
+                        key={getFileToken(file)}
+                        value={getFileToken(file)}
+                      >
                         {file.name}
                       </option>
                     ))}
@@ -1678,18 +1670,23 @@ function App() {
                 <label className="field">
                   <span>Symbol skeleton</span>
                   <select
-                    value={gridSkeletonFile ? getFileToken(gridSkeletonFile) : ""}
+                    value={
+                      gridSkeletonFile ? getFileToken(gridSkeletonFile) : ""
+                    }
                     onChange={(event) => {
                       setGridSkeletonFile(
                         gridSkeletonFiles.find(
-                          (file) => getFileToken(file) === event.target.value
-                        ) ?? null
+                          (file) => getFileToken(file) === event.target.value,
+                        ) ?? null,
                       );
                     }}
                     disabled={isLoading}
                   >
                     {gridSkeletonFiles.map((file) => (
-                      <option key={getFileToken(file)} value={getFileToken(file)}>
+                      <option
+                        key={getFileToken(file)}
+                        value={getFileToken(file)}
+                      >
                         {file.name}
                       </option>
                     ))}
@@ -1720,7 +1717,9 @@ function App() {
                     onClick={() => boardFileInputRef.current?.click()}
                     disabled={isLoading}
                   >
-                    {isBoardLoaded ? "Replace gameboard spine" : "Load gameboard spine"}
+                    {isBoardLoaded
+                      ? "Replace gameboard spine"
+                      : "Load gameboard spine"}
                   </button>
                   <button
                     className="ghost"
@@ -1750,18 +1749,23 @@ function App() {
                 <label className="field">
                   <span>Board skeleton</span>
                   <select
-                    value={boardSkeletonFile ? getFileToken(boardSkeletonFile) : ""}
+                    value={
+                      boardSkeletonFile ? getFileToken(boardSkeletonFile) : ""
+                    }
                     onChange={(event) => {
                       setBoardSkeletonFile(
                         boardSkeletonFiles.find(
-                          (file) => getFileToken(file) === event.target.value
-                        ) ?? null
+                          (file) => getFileToken(file) === event.target.value,
+                        ) ?? null,
                       );
                     }}
                     disabled={isLoading}
                   >
                     {boardSkeletonFiles.map((file) => (
-                      <option key={getFileToken(file)} value={getFileToken(file)}>
+                      <option
+                        key={getFileToken(file)}
+                        value={getFileToken(file)}
+                      >
                         {file.name}
                       </option>
                     ))}
@@ -1838,8 +1842,8 @@ function App() {
                 viewMode === "single"
                   ? scale
                   : multiScale
-                  ? gridScale
-                  : activeSlot?.scale ?? 1
+                    ? gridScale
+                    : (activeSlot?.scale ?? 1)
               }
               onChange={(event) => {
                 const nextScale = Number(event.target.value);
@@ -1849,7 +1853,7 @@ function App() {
                   if (multiScale) {
                     setGridScale(nextScale);
                     setGridSlots((prev) =>
-                      prev.map((slot) => ({ ...slot, scale: nextScale }))
+                      prev.map((slot) => ({ ...slot, scale: nextScale })),
                     );
                     gridSpinesRef.current.forEach((spine) => {
                       spine.scale.set(nextScale);
@@ -1877,8 +1881,8 @@ function App() {
                 viewMode === "single"
                   ? scale
                   : multiScale
-                  ? gridScale
-                  : activeSlot?.scale ?? 1
+                    ? gridScale
+                    : (activeSlot?.scale ?? 1)
               }
               onChange={(event) => {
                 const nextScale = Number(event.target.value || 1);
@@ -1888,7 +1892,7 @@ function App() {
                   if (multiScale) {
                     setGridScale(nextScale);
                     setGridSlots((prev) =>
-                      prev.map((slot) => ({ ...slot, scale: nextScale }))
+                      prev.map((slot) => ({ ...slot, scale: nextScale })),
                     );
                     gridSpinesRef.current.forEach((spine) => {
                       spine.scale.set(nextScale);
@@ -1936,7 +1940,7 @@ function App() {
                     onChange={(event) => {
                       const nextRows = Math.max(
                         minGridSize,
-                        Math.floor(Number(event.target.value || minGridSize))
+                        Math.floor(Number(event.target.value || minGridSize)),
                       );
                       setGridRows(nextRows);
                     }}
@@ -1952,7 +1956,7 @@ function App() {
                     onChange={(event) => {
                       const nextCols = Math.max(
                         minGridSize,
-                        Math.floor(Number(event.target.value || minGridSize))
+                        Math.floor(Number(event.target.value || minGridSize)),
                       );
                       setGridCols(nextCols);
                     }}
@@ -2118,7 +2122,7 @@ function App() {
               value={
                 viewMode === "single"
                   ? selectedAnimation
-                  : activeSlot?.selectedAnimation ?? ""
+                  : (activeSlot?.selectedAnimation ?? "")
               }
               onChange={(event) => {
                 const nextAnimation = event.target.value;
@@ -2134,7 +2138,7 @@ function App() {
                     spine.state.setAnimation(
                       0,
                       nextAnimation,
-                      activeSlot.isLooping
+                      activeSlot.isLooping,
                     );
                   }
                 }
@@ -2147,7 +2151,7 @@ function App() {
             >
               {(viewMode === "single"
                 ? animations
-                : activeSlot?.animations ?? []
+                : (activeSlot?.animations ?? [])
               ).length === 0 ? (
                 <option value="">No animations</option>
               ) : (
@@ -2157,7 +2161,7 @@ function App() {
                   ) : null}
                   {(viewMode === "single"
                     ? animations
-                    : activeSlot?.animations ?? []
+                    : (activeSlot?.animations ?? [])
                   ).map((name) => (
                     <option key={name} value={name}>
                       {name}
@@ -2173,7 +2177,7 @@ function App() {
               value={
                 viewMode === "single"
                   ? selectedSkin
-                  : activeSlot?.selectedSkin ?? ""
+                  : (activeSlot?.selectedSkin ?? "")
               }
               onChange={(event) => {
                 const nextSkin = event.target.value;
@@ -2186,8 +2190,8 @@ function App() {
                   }));
                   const spine = gridSpinesRef.current.get(activeSlot.id);
                   if (spine && nextSkin) {
-                    spine.skeleton.setSkin(nextSkin);
-                    spine.skeleton.setupPoseSlots();
+                    spine.skeleton.setSkinByName(nextSkin);
+                    spine.skeleton.setSlotsToSetupPose();
                     spine.state.apply(spine.skeleton);
                     layoutGridSpines();
                   }
@@ -2199,16 +2203,16 @@ function App() {
                   : (activeSlot?.skins.length ?? 0) === 0
               }
             >
-              {(viewMode === "single" ? skins : activeSlot?.skins ?? [])
+              {(viewMode === "single" ? skins : (activeSlot?.skins ?? []))
                 .length === 0 ? (
                 <option value="">No skins</option>
               ) : (
-                (viewMode === "single" ? skins : activeSlot?.skins ?? []).map(
+                (viewMode === "single" ? skins : (activeSlot?.skins ?? [])).map(
                   (name) => (
                     <option key={name} value={name}>
                       {name}
                     </option>
-                  )
+                  ),
                 )
               )}
             </select>
@@ -2243,8 +2247,8 @@ function App() {
                   ? "Pause"
                   : "Play"
                 : activeSlot?.isPlaying
-                ? "Pause"
-                : "Play"}
+                  ? "Pause"
+                  : "Play"}
             </button>
             <label className="checkbox">
               <input
@@ -2252,7 +2256,7 @@ function App() {
                 checked={
                   viewMode === "single"
                     ? isLooping
-                    : activeSlot?.isLooping ?? true
+                    : (activeSlot?.isLooping ?? true)
                 }
                 onChange={(event) => {
                   const nextLoop = event.target.checked;
@@ -2268,7 +2272,7 @@ function App() {
                       spine.state.setAnimation(
                         0,
                         activeSlot.selectedAnimation,
-                        nextLoop
+                        nextLoop,
                       );
                     }
                   }
@@ -2330,11 +2334,7 @@ function App() {
                 <p className="eyebrow">Slot image</p>
                 <h3>Insert image into a slot</h3>
               </div>
-              <button
-                className="ghost"
-                type="button"
-                onClick={closeSlotModal}
-              >
+              <button className="ghost" type="button" onClick={closeSlotModal}>
                 Close
               </button>
             </div>
@@ -2363,7 +2363,11 @@ function App() {
               <p className="modal-error">{slotImageError}</p>
             ) : null}
             <div className="button-row">
-              <button className="primary" type="button" onClick={handleSlotImageInsert}>
+              <button
+                className="primary"
+                type="button"
+                onClick={handleSlotImageInsert}
+              >
                 Insert image
               </button>
               <button className="ghost" type="button" onClick={closeSlotModal}>
