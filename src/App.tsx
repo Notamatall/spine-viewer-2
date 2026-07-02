@@ -887,7 +887,7 @@ function App() {
     }
     if (!selectedAnimation) {
       spine.state.clearTrack(0);
-      spine.skeleton.setToSetupPose();
+      spine.skeleton.setupPose();
       centerSingleSpine(spine);
       return;
     }
@@ -900,8 +900,8 @@ function App() {
     if (!spine || !selectedSkin) {
       return;
     }
-    spine.skeleton.setSkinByName(selectedSkin);
-    spine.skeleton.setSlotsToSetupPose();
+    spine.skeleton.setSkin(selectedSkin);
+    spine.skeleton.setupPoseSlots();
     spine.state.apply(spine.skeleton);
   }, [selectedSkin]);
 
@@ -969,7 +969,7 @@ function App() {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
 
-    const attachment = slot.getAttachment();
+    const attachment = slot.pose.attachment;
     if (
       attachment &&
       "width" in attachment &&
@@ -1165,8 +1165,8 @@ function App() {
       const initialSkin = skinNames[0] || "";
       setSelectedSkin(initialSkin);
       if (initialSkin) {
-        result.spine.skeleton.setSkinByName(initialSkin);
-        result.spine.skeleton.setSlotsToSetupPose();
+        result.spine.skeleton.setSkin(initialSkin);
+        result.spine.skeleton.setupPoseSlots();
       }
       result.spine.state.timeScale = isPlaying ? 1 : 0;
 
@@ -1246,8 +1246,8 @@ function App() {
       const initialAnimation = animationNames[0] || "";
       const initialSkin = skinNames[0] || "";
       if (initialSkin) {
-        result.spine.skeleton.setSkinByName(initialSkin);
-        result.spine.skeleton.setSlotsToSetupPose();
+        result.spine.skeleton.setSkin(initialSkin);
+        result.spine.skeleton.setupPoseSlots();
       }
       if (initialAnimation) {
         result.spine.state.setAnimation(
@@ -2190,8 +2190,8 @@ function App() {
                   }));
                   const spine = gridSpinesRef.current.get(activeSlot.id);
                   if (spine && nextSkin) {
-                    spine.skeleton.setSkinByName(nextSkin);
-                    spine.skeleton.setSlotsToSetupPose();
+                    spine.skeleton.setSkin(nextSkin);
+                    spine.skeleton.setupPoseSlots();
                     spine.state.apply(spine.skeleton);
                     layoutGridSpines();
                   }
