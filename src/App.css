@@ -90,6 +90,32 @@
   color: var(--muted);
 }
 
+.runtime-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.runtime-mismatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: var(--surface-muted);
+  font-size: 0.8rem;
+}
+
+.runtime-mismatch p {
+  margin: 0;
+}
+
 .panel-section {
   display: flex;
   flex-direction: column;

@@ -1,19 +1,35 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Application,
-  Assets,
   Graphics,
   Rectangle,
   Sprite,
   Texture,
   TextureSource,
 } from "pixi.js";
-import { Spine } from "@esotericsoftware/spine-pixi-v8";
+import {
+  detectSkeletonVersion,
+  getSlotAttachment,
+  resetSkeletonPose,
+  resetSlotsToSetupPose,
+  resolveRuntimeVersion,
+  RuntimeVersionMismatchError,
+  setSkeletonSkin,
+  setStoredRuntimeVersion,
+  type SpineInstance,
+  type SpineRuntimeModule,
+  type SpineRuntimeVersion,
+  type TextureAtlasLike,
+} from "./spineRuntime";
 import "./App.css";
 
+type AppProps = {
+  spineRuntime: SpineRuntimeModule;
+  activeRuntimeVersion: SpineRuntimeVersion;
+};
+
 type LoadedAssets = {
-  keys: string[];
-  urls: string[];
+  atlas: TextureAtlasLike;
 };
 
 type SpineSourceFiles = {
@@ -78,36 +94,10 @@ const isSkeletonFileName = (name: string) =>
 const isAtlasImageFileName = (name: string) =>
   name.endsWith(".png") || name.endsWith(".webp");
 
-const getSkeletonLoadParser = (file: File) =>
-  file.name.toLowerCase().endsWith(".skel") ? "spineSkeletonLoader" : "json";
-
 const compareFilesByName = (a: File, b: File) => a.name.localeCompare(b.name);
 
 const getFileToken = (file: File) =>
   `${file.name}-${file.lastModified}-${file.size}`;
-
-const extractAtlasPageNames = (atlasText: string) => {
-  const lines = atlasText.split(/\r?\n/);
-  const names: string[] = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i].trim();
-    if (!line || line.includes(":")) {
-      continue;
-    }
-    let nextLine = "";
-    for (let j = i + 1; j < lines.length; j += 1) {
-      const candidate = lines[j].trim();
-      if (candidate) {
-        nextLine = candidate;
-        break;
-      }
-    }
-    if (nextLine.startsWith("size:")) {
-      names.push(line);
-    }
-  }
-  return names;
-};
 
 const createGridSlots = (rows: number, cols: number): GridSlot[] =>
   Array.from({ length: rows * cols }, (_, index) => {
@@ -131,22 +121,21 @@ const createGridSlots = (rows: number, cols: number): GridSlot[] =>
     };
   });
 
-function App() {
+function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
-  const singleSpineRef = useRef<Spine | null>(null);
+  const singleSpineRef = useRef<SpineInstance | null>(null);
   const singleOutlineRef = useRef<Graphics | null>(null);
   const lastAssetsRef = useRef<LoadedAssets | null>(null);
   const gridFileInputRef = useRef<HTMLInputElement | null>(null);
   const boardFileInputRef = useRef<HTMLInputElement | null>(null);
-  const gridSpinesRef = useRef<Map<string, Spine>>(new Map());
+  const gridSpinesRef = useRef<Map<string, SpineInstance>>(new Map());
   const gridAssetsRef = useRef<Map<string, LoadedAssets>>(new Map());
   const gridOutlinesRef = useRef<Map<string, Graphics>>(new Map());
-  const boardSpineRef = useRef<Spine | null>(null);
+  const boardSpineRef = useRef<SpineInstance | null>(null);
   const boardAssetsRef = useRef<LoadedAssets | null>(null);
   const gridGuideRef = useRef<Graphics | null>(null);
   const gridHoverRef = useRef<Graphics | null>(null);
-  const assetsReadyRef = useRef(false);
   const viewModeRef = useRef<"single" | "grid">("single");
   const showGridOutlinesRef = useRef(true);
 
@@ -223,6 +212,8 @@ function App() {
   const [status, setStatus] = useState("Drop files to get started.");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [runtimeSwitchPrompt, setRuntimeSwitchPrompt] =
+    useState<SpineRuntimeVersion | null>(null);
   const themeRef = useRef<Theme>(theme);
   const gridSlotsRef = useRef<GridSlot[]>(gridSlots);
   const lastSingleSignatureRef = useRef("");
@@ -303,8 +294,7 @@ function App() {
     for (const slotId of slotIds) {
       const assets = gridAssetsRef.current.get(slotId);
       if (assets) {
-        await Assets.unload(assets.keys);
-        assets.urls.forEach((url) => URL.revokeObjectURL(url));
+        assets.atlas.dispose();
         gridAssetsRef.current.delete(slotId);
       }
       const spine = gridSpinesRef.current.get(slotId);
@@ -356,7 +346,7 @@ function App() {
     });
   }, [gridRows, gridCols]);
 
-  const centerSingleSpine = (spine: Spine) => {
+  const centerSingleSpine = (spine: SpineInstance) => {
     const app = appRef.current;
     const container = containerRef.current;
     if (!app || !container) {
@@ -367,7 +357,7 @@ function App() {
     spine.position.set(app.renderer.width / 2, app.renderer.height / 2);
   };
 
-  const updateBoundsOutline = (spine: Spine, outline: Graphics) => {
+  const updateBoundsOutline = (spine: SpineInstance, outline: Graphics) => {
     const bounds = spine.getBounds();
     outline.clear();
     outline
@@ -887,7 +877,7 @@ function App() {
     }
     if (!selectedAnimation) {
       spine.state.clearTrack(0);
-      spine.skeleton.setupPose();
+      resetSkeletonPose(activeRuntimeVersion, spine.skeleton);
       centerSingleSpine(spine);
       return;
     }
@@ -900,8 +890,8 @@ function App() {
     if (!spine || !selectedSkin) {
       return;
     }
-    spine.skeleton.setSkin(selectedSkin);
-    spine.skeleton.setupPoseSlots();
+    setSkeletonSkin(activeRuntimeVersion, spine.skeleton, selectedSkin);
+    resetSlotsToSetupPose(activeRuntimeVersion, spine.skeleton);
     spine.state.apply(spine.skeleton);
   }, [selectedSkin]);
 
@@ -969,7 +959,7 @@ function App() {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
 
-    const attachment = slot.pose.attachment;
+    const attachment = getSlotAttachment(activeRuntimeVersion, slot);
     if (
       attachment &&
       "width" in attachment &&
@@ -994,85 +984,72 @@ function App() {
     setSlotNameInput("");
   };
 
-  const createSpineFromFiles = async (
-    files: SpineSourceFiles,
-    assetPrefix: string,
-  ) => {
-    if (!assetsReadyRef.current) {
-      await Assets.init();
-      assetsReadyRef.current = true;
+  const createSpineFromFiles = async (files: SpineSourceFiles) => {
+    const detectedVersion = await detectSkeletonVersion(files.skeleton);
+    const requiredRuntime = resolveRuntimeVersion(detectedVersion);
+    if (requiredRuntime !== activeRuntimeVersion) {
+      throw new RuntimeVersionMismatchError(
+        detectedVersion,
+        requiredRuntime,
+        activeRuntimeVersion,
+      );
     }
 
     const atlasText = await files.atlas.text();
-    const pageNames = extractAtlasPageNames(atlasText);
-    if (pageNames.length === 0) {
+    const atlas = new spineRuntime.TextureAtlas(atlasText);
+    if (atlas.pages.length === 0) {
       throw new Error("Atlas pages not found. Check the .atlas file.");
     }
-    const imageMap = new Map(files.images.map((file) => [file.name, file]));
 
-    let imagesMetadata: Record<string, TextureSource> | TextureSource;
-    if (pageNames.length <= 1 && files.images.length === 1) {
-      const bitmap = await createImageBitmap(files.images[0]);
-      imagesMetadata = TextureSource.from(bitmap);
-    } else {
-      const missing = pageNames.filter((name) => !imageMap.has(name));
-      if (missing.length > 0) {
-        throw new Error(`Missing atlas pages: ${missing.join(", ")}`);
-      }
-      const images: Record<string, TextureSource> = {};
-      for (const name of pageNames) {
-        const file = imageMap.get(name);
+    try {
+      const imageMap = new Map(files.images.map((file) => [file.name, file]));
+      const missingPages: string[] = [];
+      for (const page of atlas.pages) {
+        let file = imageMap.get(page.name);
+        if (!file && atlas.pages.length === 1 && files.images.length === 1) {
+          file = files.images[0];
+        }
         if (!file) {
+          missingPages.push(page.name);
           continue;
         }
         const bitmap = await createImageBitmap(file);
-        images[name] = TextureSource.from(bitmap);
+        const textureSource = TextureSource.from(bitmap);
+        page.setTexture(spineRuntime.SpineTexture.from(textureSource));
       }
-      imagesMetadata = images;
-    }
+      if (missingPages.length > 0) {
+        throw new Error(`Missing atlas pages: ${missingPages.join(", ")}`);
+      }
 
-    const urlsToRevoke: string[] = [];
-    const skeletonUrl = URL.createObjectURL(files.skeleton);
-    const atlasUrl = URL.createObjectURL(files.atlas);
-    urlsToRevoke.push(skeletonUrl, atlasUrl);
+      const attachmentLoader = new spineRuntime.AtlasAttachmentLoader(atlas);
+      const skeletonData = files.skeleton.name.toLowerCase().endsWith(".skel")
+        ? new spineRuntime.SkeletonBinary(attachmentLoader).readSkeletonData(
+            new Uint8Array(await files.skeleton.arrayBuffer()),
+          )
+        : new spineRuntime.SkeletonJson(attachmentLoader).readSkeletonData(
+            JSON.parse(await files.skeleton.text()),
+          );
 
-    const assetId = `${assetPrefix}-${Date.now()}-${Math.random()
-      .toString(16)
-      .slice(2)}`;
-    const skeletonKey = `spine-skeleton-${assetId}`;
-    const atlasKey = `spine-atlas-${assetId}`;
-
-    try {
-      Assets.add({
-        alias: skeletonKey,
-        src: skeletonUrl,
-        parser: getSkeletonLoadParser(files.skeleton),
-      });
-      Assets.add({
-        alias: atlasKey,
-        src: atlasUrl,
-        parser: "spineTextureAtlasLoader",
-        data: { images: imagesMetadata },
-      });
-      await Assets.load([skeletonKey, atlasKey]);
-
-      const spine = Spine.from({
-        skeleton: skeletonKey,
-        atlas: atlasKey,
-        scale: 1,
-      });
+      const spine = new spineRuntime.Spine(skeletonData);
 
       return {
         spine,
-        assets: { keys: [skeletonKey, atlasKey], urls: urlsToRevoke },
-        animationNames: spine.skeleton.data.animations.map(
+        assets: { atlas },
+        animationNames: skeletonData.animations.map(
           (animation) => animation.name,
         ),
       };
     } catch (loadError) {
-      urlsToRevoke.forEach((url) => URL.revokeObjectURL(url));
+      atlas.dispose();
       throw loadError;
     }
+  };
+
+  const describeLoadError = (err: unknown, fallback: string): string => {
+    if (err instanceof RuntimeVersionMismatchError) {
+      setRuntimeSwitchPrompt(err.requiredRuntime);
+    }
+    return err instanceof Error ? err.message : fallback;
   };
 
   const parseSelectedFiles = (files: FileList | null): ParsedSelectedFiles => {
@@ -1122,15 +1099,15 @@ function App() {
 
     try {
       if (lastAssetsRef.current) {
-        await Assets.unload(lastAssetsRef.current.keys);
-        lastAssetsRef.current.urls.forEach((url) => URL.revokeObjectURL(url));
+        lastAssetsRef.current.atlas.dispose();
         lastAssetsRef.current = null;
       }
 
-      const result = await createSpineFromFiles(
-        { skeleton: skeletonFile, atlas: atlasFile, images: imageFiles },
-        "single",
-      );
+      const result = await createSpineFromFiles({
+        skeleton: skeletonFile,
+        atlas: atlasFile,
+        images: imageFiles,
+      });
 
       const app = appRef.current;
       if (!app) {
@@ -1165,8 +1142,8 @@ function App() {
       const initialSkin = skinNames[0] || "";
       setSelectedSkin(initialSkin);
       if (initialSkin) {
-        result.spine.skeleton.setSkin(initialSkin);
-        result.spine.skeleton.setupPoseSlots();
+        setSkeletonSkin(activeRuntimeVersion, result.spine.skeleton, initialSkin);
+        resetSlotsToSetupPose(activeRuntimeVersion, result.spine.skeleton);
       }
       result.spine.state.timeScale = isPlaying ? 1 : 0;
 
@@ -1178,9 +1155,7 @@ function App() {
       );
       syncStageForMode();
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load spine data.";
-      setError(message);
+      setError(describeLoadError(err, "Failed to load spine data."));
       setStatus("Load failed.");
     } finally {
       setIsLoading(false);
@@ -1212,8 +1187,7 @@ function App() {
     try {
       const existingAssets = gridAssetsRef.current.get(slotId);
       if (existingAssets) {
-        await Assets.unload(existingAssets.keys);
-        existingAssets.urls.forEach((url) => URL.revokeObjectURL(url));
+        existingAssets.atlas.dispose();
         gridAssetsRef.current.delete(slotId);
       }
 
@@ -1231,7 +1205,7 @@ function App() {
         existingOutline.destroy();
         gridOutlinesRef.current.delete(slotId);
       }
-      const result = await createSpineFromFiles(files, slotId);
+      const result = await createSpineFromFiles(files);
 
       result.spine.zIndex = 5;
       result.spine.scale.set(slotScale);
@@ -1246,8 +1220,8 @@ function App() {
       const initialAnimation = animationNames[0] || "";
       const initialSkin = skinNames[0] || "";
       if (initialSkin) {
-        result.spine.skeleton.setSkin(initialSkin);
-        result.spine.skeleton.setupPoseSlots();
+        setSkeletonSkin(activeRuntimeVersion, result.spine.skeleton, initialSkin);
+        resetSlotsToSetupPose(activeRuntimeVersion, result.spine.skeleton);
       }
       if (initialAnimation) {
         result.spine.state.setAnimation(
@@ -1270,8 +1244,7 @@ function App() {
       }));
       syncStageForMode();
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load spine data.";
+      const message = describeLoadError(err, "Failed to load spine data.");
       updateGridSlot(slotId, (slot) => ({
         ...slot,
         status: "Load failed.",
@@ -1352,8 +1325,7 @@ function App() {
 
   const handleBoardClear = async () => {
     if (boardAssetsRef.current) {
-      await Assets.unload(boardAssetsRef.current.keys);
-      boardAssetsRef.current.urls.forEach((url) => URL.revokeObjectURL(url));
+      boardAssetsRef.current.atlas.dispose();
       boardAssetsRef.current = null;
     }
     if (boardSpineRef.current) {
@@ -1388,8 +1360,7 @@ function App() {
 
     try {
       if (boardAssetsRef.current) {
-        await Assets.unload(boardAssetsRef.current.keys);
-        boardAssetsRef.current.urls.forEach((url) => URL.revokeObjectURL(url));
+        boardAssetsRef.current.atlas.dispose();
         boardAssetsRef.current = null;
       }
       if (boardSpineRef.current) {
@@ -1401,14 +1372,11 @@ function App() {
         boardSpineRef.current = null;
       }
 
-      const result = await createSpineFromFiles(
-        {
-          skeleton: boardSkeletonFile,
-          atlas: boardAtlasFile,
-          images: boardImageFiles,
-        },
-        "board",
-      );
+      const result = await createSpineFromFiles({
+        skeleton: boardSkeletonFile,
+        atlas: boardAtlasFile,
+        images: boardImageFiles,
+      });
 
       result.spine.zIndex = 1;
       boardSpineRef.current = result.spine;
@@ -1417,9 +1385,7 @@ function App() {
       setIsBoardLoaded(true);
       syncStageForMode();
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load gameboard spine.";
-      setBoardError(message);
+      setBoardError(describeLoadError(err, "Failed to load gameboard spine."));
       setIsBoardLoaded(false);
     } finally {
       setIsLoading(false);
@@ -1547,6 +1513,41 @@ function App() {
             preview the skeleton, scale it live, and play any available
             animation.
           </p>
+          <div className="runtime-row">
+            <span className="runtime-label">
+              Spine runtime: {activeRuntimeVersion}
+            </span>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                const nextVersion =
+                  activeRuntimeVersion === "4.2" ? "4.3" : "4.2";
+                setStoredRuntimeVersion(nextVersion);
+                window.location.reload();
+              }}
+            >
+              Switch to {activeRuntimeVersion === "4.2" ? "4.3" : "4.2"}
+            </button>
+          </div>
+          {runtimeSwitchPrompt ? (
+            <div className="runtime-mismatch">
+              <p>
+                That file needs the Spine {runtimeSwitchPrompt} runtime
+                (currently running {activeRuntimeVersion}).
+              </p>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setStoredRuntimeVersion(runtimeSwitchPrompt);
+                  window.location.reload();
+                }}
+              >
+                Switch to {runtimeSwitchPrompt} and reload
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="tab-row">
@@ -2190,8 +2191,8 @@ function App() {
                   }));
                   const spine = gridSpinesRef.current.get(activeSlot.id);
                   if (spine && nextSkin) {
-                    spine.skeleton.setSkin(nextSkin);
-                    spine.skeleton.setupPoseSlots();
+                    setSkeletonSkin(activeRuntimeVersion, spine.skeleton, nextSkin);
+                    resetSlotsToSetupPose(activeRuntimeVersion, spine.skeleton);
                     spine.state.apply(spine.skeleton);
                     layoutGridSpines();
                   }
