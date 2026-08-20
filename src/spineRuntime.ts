@@ -93,9 +93,37 @@ export const getSlotAttachment = (
   return (slot as unknown as Slot43Like).pose.attachment;
 };
 
+// TrackEntry is what setAnimation returns on both runtimes. Only the members
+// below are identical across 4.2 and 4.3: `additive` is 4.3-only (4.2 layers
+// through the MixBlend enum, which 4.3's core no longer exports), and the
+// per-track lookups differ too (4.2 has getCurrent, 4.3 has getTrack), so
+// `tracks` is the only portable way to read an entry back.
+export interface TrackEntryLike {
+  trackIndex: number;
+  // Compared by name to decide whether a setAnimation call is needed at all.
+  animation: AnimationLike | null;
+  loop: boolean;
+  alpha: number;
+  // Read-only here: these three decide whether toggling `loop` would move the
+  // pose. Never assign to them -- the runtime keeps animationLast/mixTime in
+  // step with trackTime, and writing it directly desynchronises event firing.
+  trackTime: number;
+  animationStart: number;
+  animationEnd: number;
+}
+
+export interface AnimationStateDataLike {
+  defaultMix: number;
+}
+
 export interface AnimationStateLike {
   timeScale: number;
-  setAnimation(track: number, name: string, loop: boolean): unknown;
+  data: AnimationStateDataLike;
+  // 4.3 declares this readonly and 4.2 mutable; indexed reads behave the same
+  // in both. Never assign to it. It only ever grows -- clearTrack writes null
+  // into a slot rather than shrinking the array -- so it is not a track count.
+  tracks: (TrackEntryLike | null)[];
+  setAnimation(track: number, name: string, loop: boolean): TrackEntryLike;
   clearTrack(track: number): void;
   apply(skeleton: SkeletonLike): unknown;
 }

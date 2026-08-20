@@ -166,6 +166,7 @@
 .field input[type='file'],
 .field input[type='text'],
 .field select,
+.track-clip,
 .scale-controls input[type='number'],
 .grid-size-field input[type='number'] {
   padding: 0.45rem 0.6rem;
@@ -286,6 +287,152 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.track-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.track-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: var(--surface-muted);
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+
+.track-row.base {
+  background: var(--surface);
+  box-shadow: var(--surface-shadow);
+}
+
+.track-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.5rem;
+}
+
+.track-index {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.track-row-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.track-clip {
+  width: 100%;
+  min-width: 0;
+}
+
+.icon-button {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.icon-button:not(:disabled):hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.icon-button.danger:not(:disabled):hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* .ghost has a :hover but no :disabled rule, even though disabled ghost
+   buttons already render elsewhere in the panel. */
+.icon-button:disabled,
+.ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ghost:disabled:hover {
+  background: transparent;
+}
+
+.track-row-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.track-row-controls .checkbox {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.track-alpha {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 120px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.track-alpha input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.track-alpha em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+  min-width: 2.1rem;
+  text-align: right;
+  color: var(--ink);
+}
+
+.mix-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.mix-field input[type='number'] {
+  width: 4.2rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
   font-size: 0.85rem;
 }
 

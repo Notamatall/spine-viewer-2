@@ -10,7 +10,6 @@ import {
 import {
   detectSkeletonVersion,
   getSlotAttachment,
-  resetSkeletonPose,
   resetSlotsToSetupPose,
   resolveRuntimeVersion,
   RuntimeVersionMismatchError,
@@ -21,6 +20,19 @@ import {
   type SpineRuntimeVersion,
   type TextureAtlasLike,
 } from "./spineRuntime";
+import {
+  addTrack,
+  applyTracks,
+  cloneTracks,
+  createInitialTracks,
+  createTrack,
+  hasAnyAnimation,
+  maxTracks,
+  removeTrackAt,
+  restartTrack,
+  setTrackAt,
+  type AnimationTrack,
+} from "./animationTracks";
 import "./App.css";
 
 type AppProps = {
@@ -52,10 +64,9 @@ type GridSlot = {
   col: number;
   hasSpine: boolean;
   animations: string[];
-  selectedAnimation: string;
+  tracks: AnimationTrack[];
   skins: string[];
   selectedSkin: string;
-  isLooping: boolean;
   isPlaying: boolean;
   scale: number;
   status: string;
@@ -110,10 +121,9 @@ const createGridSlots = (rows: number, cols: number): GridSlot[] =>
       col,
       hasSpine: false,
       animations: [],
-      selectedAnimation: "",
+      tracks: createInitialTracks(),
       skins: [],
       selectedSkin: "",
-      isLooping: true,
       isPlaying: true,
       scale: 1,
       status: "Empty slot.",
@@ -186,10 +196,10 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
   const [isBoardLoaded, setIsBoardLoaded] = useState(false);
   const [scale, setScale] = useState(1);
   const [animations, setAnimations] = useState<string[]>([]);
-  const [selectedAnimation, setSelectedAnimation] = useState("");
+  const [tracks, setTracks] = useState<AnimationTrack[]>(createInitialTracks);
+  const [mixDuration, setMixDuration] = useState(0);
   const [skins, setSkins] = useState<string[]>([]);
   const [selectedSkin, setSelectedSkin] = useState("");
-  const [isLooping, setIsLooping] = useState(true);
   const [isPlaying, setIsPlaying] = useState(true);
   const [gridRows, setGridRows] = useState(defaultGridRows);
   const [gridCols, setGridCols] = useState(defaultGridCols);
@@ -312,7 +322,7 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
           ...slot,
           hasSpine: false,
           animations: [],
-          selectedAnimation: "",
+          tracks: createInitialTracks(),
           skins: [],
           selectedSkin: "",
           status: "Empty slot.",
@@ -549,20 +559,54 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
       });
   };
 
-  const setGridLoopingForAll = (nextLoop: boolean) => {
+  const applyTracksToSlot = (slot: GridSlot, nextTracks: AnimationTrack[]) => {
+    const spine = gridSpinesRef.current.get(slot.id);
+    if (!spine) {
+      return false;
+    }
+    return applyTracks({
+      version: activeRuntimeVersion,
+      spine,
+      tracks: nextTracks,
+      animations: slot.animations,
+      isPlaying: slot.isPlaying,
+      defaultMix: mixDuration,
+    });
+  };
+
+  const updateAllSlotTracks = (
+    nextTracksFor: (slot: GridSlot) => AnimationTrack[],
+  ) => {
+    // Reads render-time gridSlots rather than gridSlotsRef, which lags by a
+    // render because it is only synced from an effect.
+    const nextBySlot = new Map(
+      gridSlots.map((slot) => [slot.id, nextTracksFor(slot)] as const),
+    );
     setGridSlots((prev) =>
       prev.map((slot) => ({
         ...slot,
-        isLooping: nextLoop,
+        tracks: nextBySlot.get(slot.id) ?? slot.tracks,
       })),
     );
-    gridSpinesRef.current.forEach((spine, slotId) => {
-      const slot = gridSlotsRef.current.find((item) => item.id === slotId);
-      if (slot?.selectedAnimation) {
-        spine.state.setAnimation(0, slot.selectedAnimation, nextLoop);
+    gridSlots.forEach((slot) => {
+      const next = nextBySlot.get(slot.id);
+      if (next) {
+        applyTracksToSlot(slot, next);
       }
     });
   };
+
+  // Only `loop` differs, so the reconciler matches every clip by name and
+  // leaves slots alone unless flipping loop would actually move their pose.
+  const setGridLoopingForAll = (nextLoop: boolean) =>
+    updateAllSlotTracks((slot) =>
+      slot.tracks.map((track) => ({ ...track, loop: nextLoop })),
+    );
+
+  const copyTracksToAllSlots = (source: AnimationTrack[]) =>
+    updateAllSlotTracks((slot) =>
+      slot.hasSpine ? cloneTracks(source, slot.animations) : slot.tracks,
+    );
 
   const syncStageForMode = () => {
     const app = appRef.current;
@@ -875,15 +919,28 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
     if (!spine) {
       return;
     }
-    if (!selectedAnimation) {
-      spine.state.clearTrack(0);
-      resetSkeletonPose(activeRuntimeVersion, spine.skeleton);
+    const structural = applyTracks({
+      version: activeRuntimeVersion,
+      spine,
+      tracks,
+      animations,
+      isPlaying,
+      defaultMix: mixDuration,
+    });
+    // Re-centre only when the clip line-up changed. `tracks` is a fresh array
+    // on every alpha step, so centring unconditionally would re-pivot the rig
+    // continuously while a slider is dragged. applyTracks already ran
+    // state.apply, so getLocalBounds() reflects the new pose.
+    if (structural) {
       centerSingleSpine(spine);
-      return;
     }
-    spine.state.setAnimation(0, selectedAnimation, isLooping);
-    centerSingleSpine(spine);
-  }, [selectedAnimation, isLooping]);
+  }, [tracks, animations, isPlaying, mixDuration]);
+
+  useEffect(() => {
+    gridSpinesRef.current.forEach((spine) => {
+      spine.state.data.defaultMix = Math.max(0, mixDuration);
+    });
+  }, [mixDuration]);
 
   useEffect(() => {
     const spine = singleSpineRef.current;
@@ -894,14 +951,6 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
     resetSlotsToSetupPose(activeRuntimeVersion, spine.skeleton);
     spine.state.apply(spine.skeleton);
   }, [selectedSkin]);
-
-  useEffect(() => {
-    const spine = singleSpineRef.current;
-    if (!spine) {
-      return;
-    }
-    spine.state.timeScale = isPlaying ? 1 : 0;
-  }, [isPlaying]);
 
   useEffect(() => {
     syncStageForMode();
@@ -1093,7 +1142,7 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
     setError(null);
     setStatus("Loading assets...");
     setAnimations([]);
-    setSelectedAnimation("");
+    setTracks(createInitialTracks());
     setSkins([]);
     setSelectedSkin("");
 
@@ -1138,7 +1187,7 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
       );
       setAnimations(animationNames);
       setSkins(skinNames);
-      setSelectedAnimation("");
+      setTracks(createInitialTracks());
       const initialSkin = skinNames[0] || "";
       setSelectedSkin(initialSkin);
       if (initialSkin) {
@@ -1180,7 +1229,7 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
       error: null,
       hasSpine: false,
       animations: [],
-      selectedAnimation: "",
+      tracks: createInitialTracks(),
       skins: [],
       selectedSkin: "",
     }));
@@ -1223,21 +1272,28 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
         setSkeletonSkin(activeRuntimeVersion, result.spine.skeleton, initialSkin);
         resetSlotsToSetupPose(activeRuntimeVersion, result.spine.skeleton);
       }
-      if (initialAnimation) {
-        result.spine.state.setAnimation(
-          0,
-          initialAnimation,
-          slotSnapshot.isLooping,
-        );
-      }
-      result.spine.state.timeScale = slotSnapshot.isPlaying ? 1 : 0;
+      const initialTracks = [
+        createTrack(initialAnimation, {
+          // Carry the slot's existing loop preference across the reload; the
+          // snapshot predates the reset above.
+          loop: slotSnapshot.tracks[0]?.loop ?? true,
+        }),
+      ];
+      applyTracks({
+        version: activeRuntimeVersion,
+        spine: result.spine,
+        tracks: initialTracks,
+        animations: animationNames,
+        isPlaying: slotSnapshot.isPlaying,
+        defaultMix: mixDuration,
+      });
 
       updateGridSlot(slotId, (slot) => ({
         ...slot,
         scale: slotScale,
         hasSpine: true,
         animations: animationNames,
-        selectedAnimation: initialAnimation,
+        tracks: initialTracks,
         skins: skinNames,
         selectedSkin: initialSkin,
         status: "Spine loaded.",
@@ -1470,6 +1526,62 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
   }, [viewMode, isLoading, boardSkeletonFile, boardAtlasFile, boardImageFiles]);
 
   const activeSlot = getActiveSlot();
+  const activeTracks =
+    viewMode === "single" ? tracks : (activeSlot?.tracks ?? []);
+  const activeAnimations =
+    viewMode === "single" ? animations : (activeSlot?.animations ?? []);
+  const activeIsPlaying =
+    viewMode === "single" ? isPlaying : (activeSlot?.isPlaying ?? true);
+  const canEditTracks = viewMode === "single" || Boolean(activeSlot);
+
+  // The single write path for track edits. `next` is always derived from
+  // activeTracks, so nothing is ever read back out of a ref.
+  const commitTracks = (next: AnimationTrack[]) => {
+    if (viewMode === "single") {
+      setTracks(next);
+      return;
+    }
+    if (!activeSlot) {
+      return;
+    }
+    const slot = activeSlot;
+    updateGridSlot(slot.id, (current) => ({ ...current, tracks: next }));
+    // Grid slots have no per-slot effect to reconcile them, so apply here.
+    applyTracksToSlot(slot, next);
+  };
+
+  const handlePlayingChange = (next: boolean) => {
+    if (viewMode === "single") {
+      setIsPlaying(next);
+      return;
+    }
+    if (!activeSlot) {
+      return;
+    }
+    updateGridSlot(activeSlot.id, (slot) => ({ ...slot, isPlaying: next }));
+    const spine = gridSpinesRef.current.get(activeSlot.id);
+    if (spine) {
+      spine.state.timeScale = next ? 1 : 0;
+    }
+  };
+
+  const handleTrackRestart = (index: number) => {
+    const spine = getActiveSpine();
+    if (spine) {
+      restartTrack(spine, activeTracks, index, activeAnimations);
+    }
+  };
+
+  const handleRestartAll = () => {
+    const spine = getActiveSpine();
+    if (!spine) {
+      return;
+    }
+    activeTracks.forEach((_, index) =>
+      restartTrack(spine, activeTracks, index, activeAnimations),
+    );
+  };
+
   const activeStatus =
     viewMode === "single"
       ? status
@@ -2117,61 +2229,155 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
 
         <div className="panel-section">
           <h2>Animation</h2>
-          <label className="field">
-            <span>Clip</span>
-            <select
-              value={
-                viewMode === "single"
-                  ? selectedAnimation
-                  : (activeSlot?.selectedAnimation ?? "")
-              }
-              onChange={(event) => {
-                const nextAnimation = event.target.value;
-                if (viewMode === "single") {
-                  setSelectedAnimation(nextAnimation);
-                } else if (activeSlot) {
-                  updateGridSlot(activeSlot.id, (slot) => ({
-                    ...slot,
-                    selectedAnimation: nextAnimation,
-                  }));
-                  const spine = gridSpinesRef.current.get(activeSlot.id);
-                  if (spine && nextAnimation) {
-                    spine.state.setAnimation(
-                      0,
-                      nextAnimation,
-                      activeSlot.isLooping,
-                    );
+          <div className="track-list">
+            {activeTracks.map((track, index) => (
+              <div
+                className={`track-row${index === 0 ? " base" : ""}`}
+                key={track.id}
+                role="group"
+                aria-label={`Track ${index}`}
+              >
+                <div className="track-row-head">
+                  <span className="track-index">
+                    {index === 0 ? "Track 0 \u00b7 base" : `Track ${index}`}
+                  </span>
+                  <div className="track-row-actions">
+                    <button
+                      type="button"
+                      className="icon-button"
+                      title="Restart this track"
+                      aria-label={`Restart track ${index}`}
+                      disabled={!track.animation}
+                      onClick={() => handleTrackRestart(index)}
+                    >
+                      &#8635;
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button danger"
+                      title="Remove this track"
+                      aria-label={`Remove track ${index}`}
+                      disabled={activeTracks.length === 1}
+                      onClick={() =>
+                        commitTracks(removeTrackAt(activeTracks, index))
+                      }
+                    >
+                      &#10005;
+                    </button>
+                  </div>
+                </div>
+                <select
+                  className="track-clip"
+                  aria-label={`Track ${index} clip`}
+                  value={track.animation}
+                  disabled={activeAnimations.length === 0}
+                  onChange={(event) =>
+                    commitTracks(
+                      setTrackAt(activeTracks, index, {
+                        animation: event.target.value,
+                      }),
+                    )
                   }
-                }
-              }}
-              disabled={
-                viewMode === "single"
-                  ? animations.length === 0
-                  : (activeSlot?.animations.length ?? 0) === 0
-              }
-            >
-              {(viewMode === "single"
-                ? animations
-                : (activeSlot?.animations ?? [])
-              ).length === 0 ? (
-                <option value="">No animations</option>
-              ) : (
-                <>
-                  {viewMode === "single" ? (
-                    <option value="">No animation</option>
-                  ) : null}
-                  {(viewMode === "single"
-                    ? animations
-                    : (activeSlot?.animations ?? [])
-                  ).map((name) => (
+                >
+                  <option value="">
+                    {activeAnimations.length === 0
+                      ? "No animations"
+                      : "No animation"}
+                  </option>
+                  {activeAnimations.map((name) => (
                     <option key={name} value={name}>
                       {name}
                     </option>
                   ))}
-                </>
-              )}
-            </select>
-          </label>
+                </select>
+                <div className="track-row-controls">
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={track.loop}
+                      onChange={(event) =>
+                        commitTracks(
+                          setTrackAt(activeTracks, index, {
+                            loop: event.target.checked,
+                          }),
+                        )
+                      }
+                    />
+                    Loop
+                  </label>
+                  {index > 0 ? (
+                    <label className="track-alpha">
+                      <span>Alpha</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={track.alpha}
+                        onChange={(event) =>
+                          commitTracks(
+                            setTrackAt(activeTracks, index, {
+                              alpha: Number(event.target.value),
+                            }),
+                          )
+                        }
+                      />
+                      <em>{track.alpha.toFixed(2)}</em>
+                    </label>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="button-row">
+            <button
+              type="button"
+              className="ghost"
+              disabled={!canEditTracks || activeTracks.length >= maxTracks}
+              onClick={() => commitTracks(addTrack(activeTracks))}
+            >
+              Add track
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              disabled={!hasAnyAnimation(activeTracks)}
+              onClick={handleRestartAll}
+            >
+              Restart all
+            </button>
+            {viewMode === "grid" ? (
+              <>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={!activeSlot?.hasSpine}
+                  onClick={() => copyTracksToAllSlots(activeTracks)}
+                >
+                  Copy tracks to all
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setGridLoopingForAll(false)}
+                >
+                  Disable all loops
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setGridLoopingForAll(true)}
+                >
+                  Enable all loops
+                </button>
+              </>
+            ) : null}
+          </div>
+          <p className="hint">
+            Track 0 is the base pose; higher tracks layer over it. Lower alpha
+            blends a layer with the tracks below it. Mix only crossfades when a
+            track&apos;s clip is replaced, never when a layer first starts.
+          </p>
           <label className="field">
             <span>Skin</span>
             <select
@@ -2222,83 +2428,27 @@ function App({ spineRuntime, activeRuntimeVersion }: AppProps) {
             <button
               type="button"
               className="ghost"
-              onClick={() => {
-                if (viewMode === "single") {
-                  setIsPlaying((prev) => !prev);
-                } else if (activeSlot) {
-                  const nextPlaying = !activeSlot.isPlaying;
-                  updateGridSlot(activeSlot.id, (slot) => ({
-                    ...slot,
-                    isPlaying: nextPlaying,
-                  }));
-                  const spine = gridSpinesRef.current.get(activeSlot.id);
-                  if (spine) {
-                    spine.state.timeScale = nextPlaying ? 1 : 0;
-                  }
-                }
-              }}
-              disabled={
-                viewMode === "single"
-                  ? animations.length === 0 || !selectedAnimation
-                  : (activeSlot?.animations.length ?? 0) === 0
-              }
+              onClick={() => handlePlayingChange(!activeIsPlaying)}
+              disabled={!hasAnyAnimation(activeTracks)}
             >
-              {viewMode === "single"
-                ? isPlaying
-                  ? "Pause"
-                  : "Play"
-                : activeSlot?.isPlaying
-                  ? "Pause"
-                  : "Play"}
+              {activeIsPlaying ? "Pause" : "Play"}
             </button>
-            <label className="checkbox">
+            <label className="mix-field">
+              Mix
               <input
-                type="checkbox"
-                checked={
-                  viewMode === "single"
-                    ? isLooping
-                    : (activeSlot?.isLooping ?? true)
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={mixDuration}
+                onChange={(event) =>
+                  setMixDuration(
+                    Math.min(2, Math.max(0, Number(event.target.value || 0))),
+                  )
                 }
-                onChange={(event) => {
-                  const nextLoop = event.target.checked;
-                  if (viewMode === "single") {
-                    setIsLooping(nextLoop);
-                  } else if (activeSlot) {
-                    updateGridSlot(activeSlot.id, (slot) => ({
-                      ...slot,
-                      isLooping: nextLoop,
-                    }));
-                    const spine = gridSpinesRef.current.get(activeSlot.id);
-                    if (spine && activeSlot.selectedAnimation) {
-                      spine.state.setAnimation(
-                        0,
-                        activeSlot.selectedAnimation,
-                        nextLoop,
-                      );
-                    }
-                  }
-                }}
               />
-              Loop
+              s
             </label>
-            {viewMode === "grid" ? (
-              <>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => setGridLoopingForAll(false)}
-                >
-                  Disable all loops
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => setGridLoopingForAll(true)}
-                >
-                  Enable all loops
-                </button>
-              </>
-            ) : null}
           </div>
         </div>
       </aside>
